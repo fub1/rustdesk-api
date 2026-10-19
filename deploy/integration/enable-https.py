@@ -60,9 +60,9 @@ server {
     proxy_set_header X-Forwarded-Proto https;
     proxy_read_timeout 30s;
     # Nginx error records cannot be formatted to redact query parameters.
-    # Restrict suppression to the authorization-code callback; its application
+    # Restrict suppression to the four authorization-code callback aliases; their
     # failure class and status remain available in redacted API/access logs.
-    location = /api/oidc/callback {
+    location ~ ^/api/(?:oidc|oauth)/(?:callback|login)$ {
         error_log /dev/null;
         proxy_pass http://127.0.0.1:21114;
     }

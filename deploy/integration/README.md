@@ -22,7 +22,7 @@ API 安装先检查 unit 所有权、语法与 bundle 摘要，再切换 root-ow
 
 三个服务当前共用一个低权限 Unix 用户；systemd 可写目录限制防止常规越界写入，但这不是 API 与 hbbs/hbbr 的强安全隔离。同 UID 的文件读取边界仍存在，正式生产若要求隔离应另行设计用户/密钥分发。
 
-HTTP/HTTPS access_log 只记录 `$uri`，不记录查询串。Nginx 原生 error_log 会追加完整 request_line，无法用 access_log 格式脱敏，所以仅授权码 callback 的错误输出和 HTTP 重定向错误输出丢弃；该路径的状态与错误类别通过脱敏 access/API 日志诊断。其他 HTTPS 路径保留专用 error_log。此取舍须与日志运维同步。
+HTTP/HTTPS access_log 只记录 `$uri`，不记录查询串。Nginx 原生 error_log 会追加完整 request_line，无法用 access_log 格式脱敏，所以仅授权码 callback 的四个别名 `/api/oidc/callback`、`/api/oidc/login`、`/api/oauth/callback`、`/api/oauth/login`（区分大小写、首尾锚定正则 `^/api/(?:oidc|oauth)/(?:callback|login)$`）的错误输出和 HTTP 重定向错误输出丢弃；这些路径的状态与错误类别通过脱敏 access/API 日志诊断。其他 HTTPS 路径保留专用 error_log。此取舍须与日志运维同步。
 
 ## 本次实际验证与待验收
 
@@ -30,6 +30,8 @@ HTTP/HTTPS access_log 只记录 `$uri`，不记录查询串。Nginx 原生 error
 
 已提取并运行官方 [RustDesk 1.5.0](https://github.com/rustdesk/rustdesk/releases/tag/1.5.0) `rustdesk-1.5.0-x86_64.deb`，SHA256 `4e2b9701d25a7ef373f3d09bda584a37d6902f97a6ab15f2e86d4a5783e2a0ec`。隔离 WSL 账号、配置、Xvfb/DBus；未改 Windows 1.4.6。真实 UI 已显示版本、成功匿名 sysinfo 上报、取得 provider 并触发 OIDC auth/poll，登录 URL 含 S256/state/nonce，未用模拟 HTTP 冒充 UI 验收。
 
-**尚未完成**：业务用户在真实 IdP 登录后的 callback/身份关联/客户端会话结果；实际地址簿/策略/审计 UI；hbbs UDP 注册及双端直连/中继。原主机 UFW 缺口已补；WSL fake-IP 改为仅测试实例的真实 IP 后仍见出包无回包，云安全组/宿主路径待核实。不可把这些登记为通过，更不宣布第一阶段全部完成。
+后续用户提供独立 Ubuntu 26.04.1 GNOME 测试机，使用同一官方 1.5.0 原包，在新 HOME/XDG 中运行（共享桌面 UID/显示/DBus，不声称 UID 隔离；未安装 root RustDesk 服务）。新机器的直连 TCP21115–21117、有效 TLS、真实外网 UDP21116 双向及 hbbs 新公钥设备登记已通过，客户端显示 Ready、公钥确认。用户在 Ubuntu RustDesk 中手动完成 OIDC，Account 显示 Logout；私有本地 token/user_info 非空，PG 新增普通用户、身份关联、有效 native session 和登录记录，session 与 peer 匹配。没有要求 IdP 改协议。
+
+WSL 原 fake-IP/宿主路径失败保留为历史观察，当前新机已通，不能继续把“云安全组待放行”当作确定阻断。**尚未完成**：实际地址簿/分页/备注、策略/审计 UI，双端直连/中继、Wayland 被控权限及 root 服务流程。不可把注册/登录扩大为这些验收，更不宣布第一阶段全部完成。
 
 离线故障恢复测试：`sudo python3 -B -m unittest discover -s deploy/integration -p 'test_*.py' -v`。测试仅写临时目录，不调用真实服务、不读真实凭据；CI 同时保留真实 MySQL/PostgreSQL、Redis、全仓 race/vet/build。备份恢复演练、整机故障与生产规模负载不在当前结果中。

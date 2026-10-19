@@ -86,4 +86,8 @@
 
 已通过的本地定向 race 包括 `./internal/clientstrategy`、`./internal/clientaudit`、`./http -run ProductionHeartbeat` 和 `./http -run TestClientCompat`（均带 `-mod=readonly -race -count=1`）；相应核心/HTTP 包 vet 已通过。元数据指名测试与本段命令是局部证据，不是 35 项完整通过或发布验收。
 
-真实 Rust/Flutter 客户端、完整代理/部署链路、生产 MySQL/PostgreSQL 上的迁移及并发行为仍待实测。版本 276/277/278 已分别集成升级、重复启动、版本写入失败回滚/重试的真实 SQLite 测试；覆盖 note 补空/非空约束、收据不推断历史、策略历史不回填及显式 peer FK/删除级联。这些不代替生产数据库升级验证。CI 与制品按对应提交记录，不能由本矩阵推导整阶段验收。
+版本 276/277/278 已分别集成升级、重复启动、版本写入失败回滚/重试的真实 SQLite 测试；覆盖 note 补空/非空约束、收据不推断历史、策略历史不回填及显式 peer FK/删除级联。后续真实 MySQL/PostgreSQL 迁移、事务失败及并发已在 `internal/integration` 与 CI 门禁补齐，见 [database-integration.md](database-integration.md)；这些不等于生产备份恢复演练。CI 与制品按对应提交记录，不能由本矩阵推导整阶段验收。
+
+2026-10-19 另行运行官方 Flutter RustDesk 1.5.0 amd64 release（非本地改编客户端）于 Ubuntu 26.04.1 GNOME。API 部署版本为 `75a51e5`，官方 hbbs/hbbr 为 1.1.16。真实外部 UDP 双向、公钥设备登记、客户端 Ready 与 key_confirmed 已核对；用户在 Ubuntu 客户端完成 OIDC，Account 显示 Logout，本地 token/user_info 非空且服务器存在匹配普通用户/身份/有效 native 会话/设备记录。配置使用独立 HOME/XDG，但与桌面共享 UID、显示和 DBus；原版 deb 解包运行，没有安装 root RustDesk 服务。
+
+本段不把注册与登录扩大为双端直连/中继、Wayland 被控权限、地址簿/分页/备注、策略实际应用或真实远控审计通过。这些各自记录实际 UI 结果；七个缺失接口仍按原阶段处理。

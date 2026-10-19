@@ -155,9 +155,27 @@ Tests cover real TLS Discovery/token/JWKS/UserInfo, real SQLite transactions,
 concurrent callbacks/polls, response recovery, faults/cancellation, and the
 production router's native/admin/local-session contracts. They do not establish
 production IdP deployment/registration, browser UI usability, a real Flutter
-binary, IdP single logout, or MySQL/PostgreSQL runtime coverage. The known IdP
+binary, IdP single logout, or MySQL/PostgreSQL runtime coverage by themselves. The known IdP
 compatibility fix baseline is dev `cf55cc21f9c604818cffda8faeab1230947ac67a`
 ([PR #67](https://github.com/fub1/ooooidc/pull/67)); a dev merge is not deployment.
+
+Live integration on 2026-10-19 separately ran the official RustDesk 1.5.0
+amd64 release on an Ubuntu 26.04.1 GNOME desktop against the deployed API
+`75a51e5ae3ecdca99800ba63649ea3eb6ab17301` and the registered existing IdP.
+The user completed OIDC in the Ubuntu client. Its Account screen showed Logout,
+and private local checks found a nonempty access token and user-info object
+without exporting either value. Read-only PostgreSQL checks confirmed one new
+ordinary user, issuer/subject identity, valid native-app session and login log,
+with the session's device matching the reported peer. This proves this native
+login path; it does not establish logout/revocation UI, IdP single logout,
+all business-user states or all OIDC error paths. A second browser window
+showed a failure page during manual interaction; it is not counted as a
+separate successful or deterministically diagnosed replay test.
+
+Real MySQL/PostgreSQL migration, admission-transaction and concurrency coverage
+is now maintained separately in `internal/integration`; see
+[database-integration.md](database-integration.md). This does not replace a
+production database backup/restore or availability exercise.
 
 GitHub/linux.do/other legacy OAuth provider implementations remain in source,
 but their old login/cache/binding controllers are no longer registered. Only
