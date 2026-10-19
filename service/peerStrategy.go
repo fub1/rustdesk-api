@@ -1,15 +1,27 @@
 package service
 
 import (
+	"context"
 	"encoding/json"
 	"time"
 
+	"github.com/lejianwen/rustdesk-api/v2/internal/clientstrategy"
 	"github.com/lejianwen/rustdesk-api/v2/model"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
 
 type PeerStrategyService struct{}
+
+// HeartbeatStrategy is the legacy composition seam. The strategy core owns an
+// explicit database/context and does not resolve application globals itself.
+func (pss *PeerStrategyService) HeartbeatStrategy(ctx context.Context, id, uuid string, known int64) (clientstrategy.Result, error) {
+	store, err := clientstrategy.New(DB)
+	if err != nil {
+		return clientstrategy.Result{}, err
+	}
+	return store.Heartbeat(ctx, id, uuid, known)
+}
 
 // FindByPeerId 根据设备ID查找策略（不含默认策略）
 func (pss *PeerStrategyService) FindByPeerId(peerId string) *model.PeerStrategy {

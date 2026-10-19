@@ -1,10 +1,12 @@
 package api
 
 import (
+	"context"
+	"errors"
 	"github.com/gin-gonic/gin"
 	requstform "github.com/lejianwen/rustdesk-api/v2/http/request/api"
 	"github.com/lejianwen/rustdesk-api/v2/http/response"
-	"github.com/lejianwen/rustdesk-api/v2/model"
+	"github.com/lejianwen/rustdesk-api/v2/internal/clientstrategy"
 	"github.com/lejianwen/rustdesk-api/v2/service"
 	"net/http"
 	"time"
@@ -49,63 +51,39 @@ func (i *Index) Heartbeat(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{})
 		return
 	}
-	peer := service.AllService.PeerService.FindById(info.Id)
-	if peer == nil || peer.RowId == 0 {
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Second)
+	defer cancel()
+	strategy, err := service.AllService.PeerStrategyService.HeartbeatStrategy(ctx, info.Id, info.Uuid, info.ModifiedAt)
+	if errors.Is(err, clientstrategy.ErrNotFound) {
 		c.JSON(http.StatusOK, gin.H{})
 		return
 	}
+	if err != nil {
+		status := http.StatusServiceUnavailable
+		if errors.Is(err, context.DeadlineExceeded) {
+			status = http.StatusGatewayTimeout
+		} else if errors.Is(err, context.Canceled) {
+			status = http.StatusRequestTimeout
+		}
+		c.JSON(status, gin.H{"error": "Strategy unavailable"})
+		return
+	}
+	peer := strategy.Peer
 	//如果在20s以内则不更新
 	if time.Now().Unix()-peer.LastOnlineTime >= 20 {
-		service.AllService.PeerService.BufferHeartbeat(peer.RowId, time.Now().Unix(), c.ClientIP())
+		if err := service.AllService.PeerService.BufferHeartbeat(peer.RowId, time.Now().Unix(), c.ClientIP()); err != nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Heartbeat unavailable"})
+			return
+		}
 	}
 	// 构建心跳响应，检查是否有策略配置需要下发给被控端
 	// 对应 RustDesk 客户端 sync.rs 中心跳响应的 strategy 字段
 	resp := gin.H{}
-	deviceStrategy := service.AllService.PeerStrategyService.FindByPeerId(info.Id)
-	// 默认策略按绑定状态分流：已绑定设备用全局默认策略，未绑定设备用未绑定专用默认策略
-	var defaultStrategy *model.PeerStrategy
-	if peer.Alias != "" {
-		defaultStrategy = service.AllService.PeerStrategyService.FindDefault()
-	} else {
-		defaultStrategy = service.AllService.PeerStrategyService.FindDefault2()
-	}
-	// 合并策略：设备策略 > 默认策略
-	effectiveModifiedAt := service.AllService.PeerStrategyService.GetEffectiveModifiedAt(deviceStrategy, defaultStrategy)
-	// 检查地址簿预设信息是否有变化（集合名称、别名、主机名）
-	presetChanged := peer.AbId != peer.PresetAbId || peer.Alias != peer.PresetAbAlias || peer.Username != peer.PresetDevUsrName || peer.Hostname != peer.PresetDevName
-	if presetChanged {
-		effectiveModifiedAt = time.Now().UnixMilli()
-		// 更新 peer 表中的预设值，用于下次对比
-		service.AllService.PeerService.UpdatePresets(peer.RowId, peer.AbId, peer.Alias, peer.Username, peer.Hostname, effectiveModifiedAt)
-	} else {
-		effectiveModifiedAt = max(effectiveModifiedAt, peer.PresetModifiedAt)
-	}
-
-	// 如果任一策略存在，且 modified_at 有变化，则下发合并后的配置
-	var mergedConfig map[string]string
-	if info.ModifiedAt != effectiveModifiedAt {
-		hasStrategy := (deviceStrategy.Id > 0) || (defaultStrategy.Id > 0)
-		if hasStrategy {
-			mergedConfig = service.AllService.PeerStrategyService.GetMergedConfigOptions(deviceStrategy, defaultStrategy)
-		} else {
-			mergedConfig = map[string]string{}
-		}
-		// 始终写入（包括空值），确保客户端能清除旧预设
-		mergedConfig["preset-address-book-alias"] = peer.Alias
-		if peer.AbId != 0 {
-			mergedConfig["preset-address-book-name"] = service.AllService.AddressBookService.CollectionInfoById(peer.AbId).Name
-			mergedConfig["preset-device-username"] = peer.Username
-			mergedConfig["preset-device-name"] = peer.Hostname
-		} else {
-			mergedConfig["preset-address-book-name"] = ""
-			mergedConfig["preset-device-username"] = ""
-			mergedConfig["preset-device-name"] = ""
-		}
-
+	if strategy.Changed {
 		resp["strategy"] = gin.H{
-			"config_options": mergedConfig,
+			"config_options": strategy.ConfigOptions,
 		}
-		resp["modified_at"] = effectiveModifiedAt
+		resp["modified_at"] = strategy.Revision
 	}
 	c.JSON(http.StatusOK, resp)
 }

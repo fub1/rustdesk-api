@@ -1,0 +1,546 @@
+{
+  "format_version": 1,
+  "client_revision": "53996e3c404ea5083df0775057e4149e49102084",
+  "api_inventory_revision": "91c5b74786c79b622926b9f4c17d2a3897540a43",
+  "scope": "ARCH07 local worktree contract inventory and named partial test evidence; not 35/35, deployment, migration or same-SHA CI acceptance",
+  "source_analysis": "research/02-client-api-contract.md",
+  "details": "docs/client-compatibility.md",
+  "contract_count": 35,
+  "separate_transport_probe": {
+    "method": "HEAD",
+    "path": "/api/login-options",
+    "business_contract_id": "01",
+    "coverage": "not_yet_verified",
+    "counts_as_separate_contract": false
+  },
+  "contracts": [
+    {
+      "id": "01",
+      "method": "GET",
+      "path": "/api/login-options",
+      "auth": "none",
+      "request_shape": "empty",
+      "response_shape": "json_string_array",
+      "route_status": "route_present",
+      "coverage": "not_yet_business_tested",
+      "existing_partial_tests": [],
+      "fixture_status": "planned_not_executed"
+    },
+    {
+      "id": "02",
+      "method": "POST",
+      "path": "/api/login",
+      "auth": "none",
+      "request_shape": "login_json_deviceInfo",
+      "response_shape": "top_level_auth_body",
+      "route_status": "route_present",
+      "coverage": "not_yet_production_account_tested",
+      "existing_partial_tests": [],
+      "fixture_status": "planned_not_executed"
+    },
+    {
+      "id": "03",
+      "method": "POST",
+      "path": "/api/currentUser",
+      "auth": "bearer",
+      "request_shape": "device_json",
+      "response_shape": "top_level_user_or_401",
+      "route_status": "route_present",
+      "coverage": "covered_partial",
+      "existing_partial_tests": [
+        "http/oidc_integration_test.go:TestProductionOIDCRoutesPublicPKCEAndLocalSession"
+      ],
+      "fixture_status": "existing_local_oidc_http_sqlite_tls_evidence_not_current_sha_ci"
+    },
+    {
+      "id": "04",
+      "method": "POST",
+      "path": "/api/logout",
+      "auth": "bearer",
+      "request_shape": "device_json",
+      "response_shape": "ignored_client_response_and_db_revoke",
+      "route_status": "route_present",
+      "coverage": "covered_partial",
+      "existing_partial_tests": [
+        "http/oidc_integration_test.go:TestProductionOIDCRoutesPublicPKCEAndLocalSession"
+      ],
+      "fixture_status": "existing_local_oidc_http_sqlite_tls_evidence_not_current_sha_ci"
+    },
+    {
+      "id": "05",
+      "method": "POST",
+      "path": "/api/oidc/auth",
+      "auth": "none",
+      "request_shape": "op_device_apiDomain_json",
+      "response_shape": "code_url_or_error",
+      "route_status": "route_present",
+      "coverage": "covered_partial",
+      "existing_partial_tests": [
+        "http/oidc_integration_test.go:TestProductionOIDCRoutesPublicPKCEAndLocalSession"
+      ],
+      "fixture_status": "existing_local_oidc_http_sqlite_tls_evidence_not_current_sha_ci"
+    },
+    {
+      "id": "06",
+      "method": "GET",
+      "path": "/api/oidc/auth-query",
+      "auth": "none",
+      "request_shape": "query_code_id_uuid",
+      "response_shape": "auth_body_or_exact_pending_error",
+      "route_status": "route_present",
+      "coverage": "covered_partial",
+      "existing_partial_tests": [
+        "http/oidc_integration_test.go:TestProductionOIDCRoutesPublicPKCEAndLocalSession"
+      ],
+      "fixture_status": "existing_local_oidc_http_sqlite_tls_evidence_not_current_sha_ci"
+    },
+    {
+      "id": "07",
+      "method": "POST",
+      "path": "/api/heartbeat",
+      "auth": "none",
+      "request_shape": "device_ver_modified_at_optional_conns",
+      "response_shape": "object_strategy_sysinfo_disconnect",
+      "route_status": "route_present",
+      "coverage": "covered_partial",
+      "existing_partial_tests": [
+        "http/strategy_compat_test.go:TestProductionHeartbeatPolicyDeletionAndClientClearSemantics",
+        "http/strategy_compat_test.go:TestProductionHeartbeatFailuresCannotBecomeEmptySuccess",
+        "http/strategy_compat_test.go:TestProductionHeartbeatDeviceAndContextBoundaries",
+        "internal/clientstrategy/strategy_test.go:TestUnassignedDeviceDoesNotClaimLocalPresetKeys",
+        "internal/clientstrategy/strategy_test.go:TestPresetAssignmentOverridesPolicyAndRemovalPreservesValidFallback",
+        "internal/clientstrategy/strategy_test.go:TestCommitFailureDoesNotPublishOrLoseHistory",
+        "internal/clientstrategy/strategy_test.go:TestConcurrentHeartbeatUsesOneDurableHistory"
+      ],
+      "fixture_status": "local_targeted_race_passed_no_real_rust_client_or_ci",
+      "implementation_notes": [
+        "managed_history_contains_only_actual_policy_or_real_assignment_keys_not_unconditional_four_presets",
+        "removed_historical_managed_keys_are_explicit_empty_and_remain_managed",
+        "unmanaged_local_keys_are_untouched",
+        "empty_can_suppress_custom_DEFAULT_and_does_not_restore_prior_personal_values_this_is_final_accepted_semantics",
+        "previously_deleted_pre_upgrade_keys_without_history_cannot_be_reconstructed",
+        "revision_is_nonzero_positive_63_bit_SHA256_digest_of_full_effective_payload_with_theoretical_collision_risk",
+        "this_slice_covers_strategy_and_telemetry_admission_not_sysinfo_disconnect_response_features"
+      ]
+    },
+    {
+      "id": "08",
+      "method": "POST",
+      "path": "/api/sysinfo",
+      "auth": "none",
+      "request_shape": "device_inventory_and_optional_presets",
+      "response_shape": "raw_SYSINFO_UPDATED",
+      "route_status": "route_present",
+      "coverage": "not_yet_business_tested",
+      "existing_partial_tests": [],
+      "fixture_status": "planned_not_executed"
+    },
+    {
+      "id": "09",
+      "method": "POST",
+      "path": "/api/sysinfo_ver",
+      "auth": "none",
+      "request_shape": "empty_json_request",
+      "response_shape": "raw_version_text",
+      "route_status": "conditional_unreachable",
+      "coverage": "not_a_normal_client_flow",
+      "existing_partial_tests": [],
+      "fixture_status": "planned_not_executed"
+    },
+    {
+      "id": "10",
+      "method": "POST",
+      "path": "/api/switch-grant",
+      "auth": "device_signature",
+      "request_shape": "signed_verifier_and_timestamp",
+      "response_shape": "accepted_boolean_optional_server_time",
+      "route_status": "deferred_missing",
+      "coverage": "unsupported",
+      "existing_partial_tests": [],
+      "fixture_status": "planned_not_executed"
+    },
+    {
+      "id": "11",
+      "method": "POST",
+      "path": "/api/devices/deploy",
+      "auth": "operation_bearer",
+      "request_shape": "id_uuid_pk_json",
+      "response_shape": "result_enum",
+      "route_status": "deferred_missing",
+      "coverage": "unsupported",
+      "existing_partial_tests": [],
+      "fixture_status": "planned_not_executed"
+    },
+    {
+      "id": "12",
+      "method": "POST",
+      "path": "/api/devices/cli",
+      "auth": "operation_bearer",
+      "request_shape": "id_uuid_and_at_least_one_attribute",
+      "response_shape": "empty_text_success",
+      "route_status": "deferred_missing",
+      "coverage": "unsupported",
+      "existing_partial_tests": [],
+      "fixture_status": "planned_not_executed"
+    },
+    {
+      "id": "13",
+      "method": "POST",
+      "path": "/api/ab/settings",
+      "auth": "bearer",
+      "request_shape": "empty",
+      "response_shape": "object_max_peer_one_ab_or_404",
+      "route_status": "route_present",
+      "coverage": "not_yet_business_tested",
+      "existing_partial_tests": [],
+      "fixture_status": "route_retained_no_new_named_targeted_http_business_test_in_this_slice"
+    },
+    {
+      "id": "14",
+      "method": "POST",
+      "path": "/api/ab/personal",
+      "auth": "bearer",
+      "request_shape": "empty",
+      "response_shape": "object_guid_or_404",
+      "route_status": "route_present",
+      "coverage": "not_yet_business_tested",
+      "existing_partial_tests": [],
+      "fixture_status": "route_retained_no_new_named_targeted_http_business_test_in_this_slice"
+    },
+    {
+      "id": "15",
+      "method": "POST",
+      "path": "/api/ab/shared/profiles",
+      "auth": "bearer",
+      "request_shape": "query_current_pageSize_empty_body",
+      "response_shape": "total_data_profiles_or_404",
+      "route_status": "route_present",
+      "coverage": "covered_partial",
+      "existing_partial_tests": [
+        "http/addressbook_compat_test.go:TestClientCompatProfilesPaginationMaximumRuleAndScope"
+      ],
+      "fixture_status": "local_targeted_race_passed_no_real_client_production_db_or_current_ci",
+      "verification_level": "production_router_http_sqlite"
+    },
+    {
+      "id": "16",
+      "method": "GET",
+      "path": "/api/ab",
+      "auth": "bearer",
+      "request_shape": "empty",
+      "response_shape": "data_json_string_with_tag_colors_json_string",
+      "route_status": "route_present",
+      "coverage": "covered_partial",
+      "existing_partial_tests": [
+        "http/addressbook_compat_test.go:TestClientCompatAddressBookPaginationAndWireTypes"
+      ],
+      "fixture_status": "local_targeted_race_passed_no_real_client_production_db_or_current_ci",
+      "verification_level": "production_router_http_sqlite"
+    },
+    {
+      "id": "17",
+      "method": "POST",
+      "path": "/api/ab",
+      "auth": "bearer",
+      "request_shape": "object_data_json_string",
+      "response_shape": "empty_or_null_or_no_error_json",
+      "route_status": "route_present",
+      "coverage": "covered_partial",
+      "existing_partial_tests": [
+        "http/addressbook_compat_test.go:TestClientCompatLegacyReplaceIsAtomicAndPersonalOnly"
+      ],
+      "fixture_status": "local_targeted_race_passed_no_real_client_production_db_or_current_ci",
+      "verification_level": "production_router_http_sqlite"
+    },
+    {
+      "id": "18",
+      "method": "POST",
+      "path": "/api/ab/peers",
+      "auth": "bearer",
+      "request_shape": "query_current_pageSize_ab_empty_body",
+      "response_shape": "total_data_peers",
+      "route_status": "route_present",
+      "coverage": "covered_partial",
+      "existing_partial_tests": [
+        "http/addressbook_compat_test.go:TestClientCompatAddressBookPaginationAndWireTypes",
+        "http/addressbook_compat_test.go:TestClientCompatQueryFailuresAndCanceledRequestsFailClosed",
+        "http/addressbook_compat_test.go:TestClientCompatProfilesPaginationMaximumRuleAndScope"
+      ],
+      "fixture_status": "local_targeted_race_passed_no_real_client_production_db_or_current_ci",
+      "verification_level": "production_router_http_sqlite"
+    },
+    {
+      "id": "19",
+      "method": "POST",
+      "path": "/api/ab/tags/:guid",
+      "auth": "bearer",
+      "request_shape": "empty",
+      "response_shape": "top_level_tag_array",
+      "route_status": "route_present",
+      "coverage": "covered_partial",
+      "existing_partial_tests": [
+        "http/addressbook_compat_test.go:TestClientCompatAddressBookPaginationAndWireTypes"
+      ],
+      "fixture_status": "local_targeted_race_passed_no_real_client_production_db_or_current_ci",
+      "verification_level": "production_router_http_sqlite"
+    },
+    {
+      "id": "20",
+      "method": "POST",
+      "path": "/api/ab/peer/add/:guid",
+      "auth": "bearer",
+      "request_shape": "single_peer_json",
+      "response_shape": "action_ack_without_error",
+      "route_status": "route_present",
+      "coverage": "covered_partial",
+      "existing_partial_tests": [
+        "http/addressbook_compat_test.go:TestClientCompatAddUsesWireFieldsAndCannotReadForeignHostMetadata"
+      ],
+      "fixture_status": "local_targeted_race_passed_no_real_client_production_db_or_current_ci",
+      "verification_level": "production_router_http_sqlite"
+    },
+    {
+      "id": "21",
+      "method": "PUT",
+      "path": "/api/ab/peer/update/:guid",
+      "auth": "bearer",
+      "request_shape": "id_and_only_changed_fields",
+      "response_shape": "action_ack_without_error",
+      "route_status": "route_present",
+      "coverage": "covered_partial",
+      "existing_partial_tests": [
+        "http/addressbook_compat_test.go:TestClientCompatPatchPreservesOmittedFieldsAndClearsExplicitValues",
+        "http/addressbook_compat_test.go:TestClientCompatProfilesPaginationMaximumRuleAndScope"
+      ],
+      "fixture_status": "local_targeted_race_passed_no_real_client_production_db_or_current_ci",
+      "verification_level": "production_router_http_sqlite"
+    },
+    {
+      "id": "22",
+      "method": "DELETE",
+      "path": "/api/ab/peer/:guid",
+      "auth": "bearer",
+      "request_shape": "json_id_array_in_body",
+      "response_shape": "action_ack_without_error",
+      "route_status": "route_present",
+      "coverage": "not_yet_business_tested",
+      "existing_partial_tests": [],
+      "fixture_status": "route_retained_no_new_named_targeted_http_business_test_in_this_slice"
+    },
+    {
+      "id": "23",
+      "method": "POST",
+      "path": "/api/ab/tag/add/:guid",
+      "auth": "bearer",
+      "request_shape": "name_color_json",
+      "response_shape": "action_ack_without_error",
+      "route_status": "route_present",
+      "coverage": "not_yet_business_tested",
+      "existing_partial_tests": [],
+      "fixture_status": "route_retained_no_new_named_targeted_http_business_test_in_this_slice"
+    },
+    {
+      "id": "24",
+      "method": "PUT",
+      "path": "/api/ab/tag/rename/:guid",
+      "auth": "bearer",
+      "request_shape": "old_new_json",
+      "response_shape": "action_ack_without_error",
+      "route_status": "route_present",
+      "coverage": "not_yet_business_tested",
+      "existing_partial_tests": [],
+      "fixture_status": "route_retained_no_new_named_targeted_http_business_test_in_this_slice"
+    },
+    {
+      "id": "25",
+      "method": "PUT",
+      "path": "/api/ab/tag/update/:guid",
+      "auth": "bearer",
+      "request_shape": "name_color_json",
+      "response_shape": "action_ack_without_error",
+      "route_status": "route_present",
+      "coverage": "not_yet_business_tested",
+      "existing_partial_tests": [],
+      "fixture_status": "route_retained_no_new_named_targeted_http_business_test_in_this_slice"
+    },
+    {
+      "id": "26",
+      "method": "DELETE",
+      "path": "/api/ab/tag/:guid",
+      "auth": "bearer",
+      "request_shape": "json_name_array_in_body",
+      "response_shape": "action_ack_without_error",
+      "route_status": "route_present",
+      "coverage": "not_yet_business_tested",
+      "existing_partial_tests": [],
+      "fixture_status": "route_retained_no_new_named_targeted_http_business_test_in_this_slice"
+    },
+    {
+      "id": "27",
+      "method": "GET",
+      "path": "/api/device-group/accessible",
+      "auth": "bearer",
+      "request_shape": "query_current_pageSize",
+      "response_shape": "total_data_group_names",
+      "route_status": "route_present",
+      "coverage": "covered_partial",
+      "existing_partial_tests": [
+        "http/addressbook_compat_test.go:TestClientCompatGroupListsPaginateAfterAuthorization"
+      ],
+      "fixture_status": "local_targeted_race_passed_no_real_client_production_db_or_current_ci",
+      "verification_level": "production_router_http_sqlite"
+    },
+    {
+      "id": "28",
+      "method": "GET",
+      "path": "/api/users",
+      "auth": "bearer",
+      "request_shape": "query_current_pageSize_accessible_status",
+      "response_shape": "total_data_users",
+      "route_status": "route_present",
+      "coverage": "covered_partial",
+      "existing_partial_tests": [
+        "http/addressbook_compat_test.go:TestClientCompatGroupListsPaginateAfterAuthorization",
+        "http/addressbook_compat_test.go:TestClientCompatAuthorizationDependencyFailureDoesNotExpandScope"
+      ],
+      "fixture_status": "local_targeted_race_passed_no_real_client_production_db_or_current_ci",
+      "verification_level": "production_router_http_sqlite"
+    },
+    {
+      "id": "29",
+      "method": "GET",
+      "path": "/api/peers",
+      "auth": "bearer",
+      "request_shape": "query_current_pageSize_accessible_status",
+      "response_shape": "total_data_peer_info",
+      "route_status": "route_present",
+      "coverage": "covered_partial",
+      "existing_partial_tests": [
+        "http/addressbook_compat_test.go:TestClientCompatGroupListsPaginateAfterAuthorization",
+        "http/addressbook_compat_test.go:TestClientCompatAuthorizationDependencyFailureDoesNotExpandScope"
+      ],
+      "fixture_status": "local_targeted_race_passed_no_real_client_production_db_or_current_ci",
+      "verification_level": "production_router_http_sqlite"
+    },
+    {
+      "id": "30",
+      "method": "POST",
+      "path": "/api/audit/conn",
+      "auth": "none",
+      "request_shape": "new_authorized_close_or_legacy_note_json",
+      "response_shape": "2xx_empty_body_after_store",
+      "route_status": "route_present",
+      "coverage": "covered_partial",
+      "existing_partial_tests": [
+        "internal/clientaudit/http_test.go:TestAuditHTTPPreservesFullUint64AndEmptyACK",
+        "internal/clientaudit/http_test.go:TestAuditHTTPMissingConnectionAndDatabaseFailureStayRetryable",
+        "internal/clientaudit/http_test.go:TestAuditHTTPCommitFailureDoesNotACKOrBurnNonce",
+        "internal/clientaudit/http_test.go:TestAuditHTTPCrossActionNonceIsConflictAndFailureDoesNotBurnReceipt",
+        "internal/clientaudit/http_test.go:TestAuditHTTPPropagatesInflightDeadline",
+        "internal/clientaudit/audit_test.go:TestCrossStoreSQLiteHandlesCommitOneReceiptAndEvent",
+        "internal/clientaudit/audit_test.go:TestCrashReconnectAssociatesAuthAndCloseWithLatestOpen",
+        "internal/clientaudit/audit_test.go:TestCloseAfterCrashBeforeAuthorizationUsesLatestZeroOpen",
+        "http/audit_compat_test.go:TestProductionAuditRoutesUseAssembledTransactionalWriter"
+      ],
+      "fixture_status": "local_targeted_race_passed_no_real_client_production_db_or_current_ci",
+      "verification_level": "real_controller_http_sqlite_and_selected_full_production_router_checks",
+      "implementation_notes": [
+        "session_id_is_full_uint64_not_float64",
+        "receipt_and_business_mutation_commit_atomically_and_duplicate_check_after_failure_uses_transaction_outside_aborted_write",
+        "legacy_note_only_shape_is_rejected_400_not_acknowledged_as_a_connection_event",
+        "latest_live_exact_or_zero_session_candidate_wins_for_same_device_uuid_conn_id",
+        "committed_old_retries_are_deduplicated_before_connection_association",
+        "wire_has_no_open_generation_or_occurrence_time_unseen_old_no_receipt_delivery_is_ambiguous_not_exactly_once_business_ordering",
+        "no_nonce_remains_best_effort",
+        "anonymous_device_fields_are_not_cryptographic_device_authentication"
+      ]
+    },
+    {
+      "id": "31",
+      "method": "POST",
+      "path": "/api/audit/file",
+      "auth": "none",
+      "request_shape": "device_file_metadata_info_json_string_nonce",
+      "response_shape": "2xx_empty_body_after_store",
+      "route_status": "route_present",
+      "coverage": "covered_partial",
+      "existing_partial_tests": [
+        "internal/clientaudit/http_test.go:TestAuditHTTPFileRetryAndConflict",
+        "internal/clientaudit/http_test.go:TestAuditHTTPReceiptPreservesOriginalFileSemantics",
+        "internal/clientaudit/audit_test.go:TestConcurrentRetriesStoreOneOpenAndFilePerWriter",
+        "internal/clientaudit/audit_test.go:TestFailedAuditWritesDoNotBurnNonceAndRetrySucceeds",
+        "internal/clientaudit/audit_test.go:TestReceiptsSurviveBusinessChangesAndDeletionWithoutRecreatingRows",
+        "http/audit_compat_test.go:TestProductionAuditRoutesUseAssembledTransactionalWriter"
+      ],
+      "fixture_status": "local_targeted_race_passed_no_real_client_production_db_or_current_ci",
+      "verification_level": "real_controller_http_sqlite_and_selected_full_production_router_checks",
+      "implementation_notes": [
+        "receipt_uses_original_Info_and_is_file_before_filename_adaptation",
+        "large_integer_file_sizes_preserved_without_float64_rounding",
+        "business_audit_deletion_does_not_delete_delivery_receipt_or_recreate_business_on_replay",
+        "no_nonce_remains_best_effort"
+      ]
+    },
+    {
+      "id": "32",
+      "method": "POST",
+      "path": "/api/audit/alarm",
+      "auth": "none",
+      "request_shape": "device_typ_info_json_string_nonce",
+      "response_shape": "2xx_empty_body_after_store",
+      "route_status": "deferred_missing",
+      "coverage": "unsupported",
+      "existing_partial_tests": [],
+      "fixture_status": "planned_not_executed"
+    },
+    {
+      "id": "33",
+      "method": "GET",
+      "path": "/api/audit/conn/active",
+      "auth": "bearer",
+      "request_shape": "query_id_u64_session_id_conn_type",
+      "response_shape": "json_guid_string_or_null",
+      "route_status": "deferred_missing",
+      "coverage": "unsupported",
+      "existing_partial_tests": [],
+      "fixture_status": "planned_not_executed"
+    },
+    {
+      "id": "34",
+      "method": "PUT",
+      "path": "/api/audit",
+      "auth": "bearer",
+      "request_shape": "guid_note_json",
+      "response_shape": "http_200",
+      "route_status": "deferred_missing",
+      "coverage": "unsupported",
+      "existing_partial_tests": [],
+      "fixture_status": "planned_not_executed"
+    },
+    {
+      "id": "35",
+      "method": "POST",
+      "path": "/api/record",
+      "auth": "none",
+      "request_shape": "binary_body_query_type_file_offset_length",
+      "response_shape": "body_without_json_error",
+      "route_status": "deferred_missing",
+      "coverage": "unsupported",
+      "existing_partial_tests": [],
+      "fixture_status": "planned_not_executed"
+    }
+  ],
+  "verification": {
+    "environment": "WSL Ubuntu-24.04 Go 1.23.10 CGO=1 isolated SQLite and local httptest",
+    "local_passed_commands": [
+      "go test -mod=readonly -race -count=1 ./internal/clientstrategy",
+      "go test -mod=readonly -race -count=1 ./internal/clientaudit",
+      "go test -mod=readonly -race -count=1 ./http -run ProductionHeartbeat",
+      "go test -mod=readonly -race -count=1 ./http -run TestClientCompat"
+    ],
+    "real_rust_flutter_client": "not_run",
+    "production_mysql_postgresql": "not_run",
+    "same_sha_ci": "not_claimed_pending_main_integration",
+    "release_migrations": "versions_276_277_278_real_sqlite_upgrade_failure_retry_constraints_tested_not_production_mysql_postgresql"
+  }
+}

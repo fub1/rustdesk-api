@@ -98,7 +98,7 @@ func migrateSchema(db *gorm.DB) error {
 		&model.AddressBook{}, &model.Peer{}, &model.Group{}, &model.UserThird{},
 		&model.Oauth{}, &model.OIDCIdentity{}, &model.LoginLog{}, &model.ShareRecord{}, &model.AuditConn{},
 		&model.AuditFile{}, &model.AuditDeliveryReceipt{}, &model.AddressBookCollection{}, &model.AddressBookCollectionRule{},
-		&model.ServerCmd{}, &model.DeviceGroup{}, &model.PeerStrategy{}, &model.OperationLog{},
+		&model.ServerCmd{}, &model.DeviceGroup{}, &model.PeerStrategy{}, &model.PeerStrategyState{}, &model.OperationLog{},
 	); err != nil {
 		return fmt.Errorf("migrate schema: %w", err)
 	}
@@ -113,6 +113,11 @@ func migrateSchema(db *gorm.DB) error {
 	if !db.Migrator().HasConstraint(&model.OIDCIdentity{}, "User") {
 		if err := db.Migrator().CreateConstraint(&model.OIDCIdentity{}, "User"); err != nil {
 			return fmt.Errorf("create OIDC identity user foreign key: %w", err)
+		}
+	}
+	if !db.Migrator().HasConstraint(&model.PeerStrategyState{}, "Peer") {
+		if err := db.Migrator().CreateConstraint(&model.PeerStrategyState{}, "Peer"); err != nil {
+			return fmt.Errorf("create strategy state peer foreign key: %w", err)
 		}
 	}
 	return nil

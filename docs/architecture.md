@@ -204,11 +204,35 @@ HTTP request rather than a detached goroutine. Maintenance commands create no
 server/cache workers. See [lifecycle.md](lifecycle.md) for verified behavior and
 the distinction between graceful completion and a forced process exit.
 
-## Next slices
+## ARCH 07: selected client compatibility boundaries
+
+`internal/clientcompat` owns scoped pagination and typed address-book patches;
+`internal/clientaudit` owns atomic audit/receipt writes and exact uint64 session
+IDs; `internal/clientstrategy` owns effective policy snapshots and durable
+managed-key history. Each receives a database/context explicitly and starts no
+workers. Controllers and narrow legacy services remain the assembly bridge;
+this does not remove globals from all business CRUD or make the whole server
+safe for independent instances in one process.
+
+The three approved model changes ship as versions 276–278. Selected HTTP,
+transaction, commit failure, retry and upgrade tests use real SQLite. The client
+matrix records partial coverage and missing interfaces, rather than equating
+registered routes with working features. See [address-book compatibility](addressbook-compatibility.md),
+[audit semantics](client-audit.md), and [the client matrix](client-compatibility.md).
+
+Policy deletion uses explicit empty strings only for historical managed keys,
+while retaining values from still-effective policy and leaving unmanaged keys
+alone. Restoring pre-policy personal values or exact client-customized defaults
+has been removed from required future work; the clearing behavior and its
+limits are the accepted final semantics. Existing protocol audit events lack
+connection generations, so unseen delayed events retain documented ambiguity.
+
+## Remaining acceptance
 
 The startup migration failure portion is documented in
-[migration-recovery.md](migration-recovery.md). ARCH 07 handles the first client
-compatibility fixes; real client and database validation remain separate gates.
+[migration-recovery.md](migration-recovery.md). Real Rust/Flutter client and
+MySQL/PostgreSQL validation remain separate gates. The seven missing fixed
+client endpoints continue in their planned later phases.
 
 Our API will act as a standards-compliant OIDC relying party adapting to our
 OIDC provider's requirements (including public client, no secret and S256).
