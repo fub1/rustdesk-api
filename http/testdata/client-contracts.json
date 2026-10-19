@@ -922,10 +922,16 @@
       "route_status": "route_present",
       "coverage": "covered_partial",
       "existing_partial_tests": [
-        "http/addressbook_compat_test.go:TestClientCompatLegacyReplaceIsAtomicAndPersonalOnly"
+        "http/addressbook_compat_test.go:TestClientCompatLegacyReplaceIsAtomicAndPersonalOnly",
+        "http/sciter_write_compat_test.go:TestSciterWriteInitialAndResetWithoutColors",
+        "http/sciter_write_compat_test.go:TestSciterWriteOmittedColorsPreservesFactsAndExtensions",
+        "http/sciter_write_compat_test.go:TestSciterWriteRejectsInvalidMetadataAndPartialSnapshots",
+        "http/sciter_write_compat_test.go:TestSciterWriteOmittedColorsTransactionFailuresRollback",
+        "internal/integration/sciter_addressbook_test.go:TestClientSciterOmittedColorsRealEngines",
+        "internal/integration/sciter_addressbook_test.go:TestClientSciterReplacementRealCommitRollback"
       ],
-      "fixture_status": "local_targeted_race_passed_no_real_client_production_db_or_current_ci",
-      "verification_level": "production_router_http_sqlite",
+      "fixture_status": "local_http_sqlite_and_mysql_postgresql_passed_not_real_client",
+      "verification_level": "production_router_http_sqlite_and_real_engine_store",
       "client_variants": [
         {
           "id": "ab_legacy_put_flutter",
@@ -981,7 +987,12 @@
       "field_freeze_status": "source_summary_not_complete_JSON_Schema",
       "implementation_notes": [
         "COMP07 this client write participates in actor/owner lock ordering with tag mutations; management writers are not all coordinated"
-      ]
+      ],
+      "implementation_update": {
+        "task": "COMP09-write",
+        "semantics": "omitted tag_colors preserves retained colors, new tags default0; fact arrays required; explicit invalid/null colors rejected; actor personal scope and transaction retained",
+        "real_client": "not run for this slice"
+      }
     },
     {
       "id": "18",
@@ -2556,7 +2567,15 @@
       "local_targeted_checks": "production HTTP/SQLite scope, wire types, anonymous rejection, query failure and cancellation",
       "ci": "exact commit Actions is authoritative",
       "real_client": "not run for this slice",
-      "remaining": "whole-document write without tag_colors is the next slice"
+      "remaining": "whole-document omission compatibility delivered by following COMP09-write slice; real Sciter acceptance still pending"
+    },
+    {
+      "task": "COMP09-write",
+      "source_inventory_unchanged": true,
+      "business_scope": "Sciter whole-document POST /api/ab without color metadata; strict explicit invalid values; no schema change",
+      "local_targeted_checks": "HTTP/SQLite initialization/reset/metadata/extension/scope/input and reached COMMIT rollback; MySQL8.0.46/PostgreSQL18.4 exact names, omission/reset/scope and actual COMMIT failure/retry passed",
+      "ci": "exact commit Actions is authoritative",
+      "real_client": "not run for this slice"
     }
   ]
 }

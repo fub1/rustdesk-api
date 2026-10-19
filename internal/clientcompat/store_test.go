@@ -76,7 +76,7 @@ func TestPersonalReplaceReportsCommitFailureWithoutPartialWrites(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	doc := clientcompat.Document{Peers: []clientcompat.PeerInput{{ID: "existing", Alias: clientcompat.StringField{Present: true, Value: "after"}, Note: clientcompat.StringField{Present: true, Value: "new-note"}}}, Tags: []string{"after"}, TagColors: `{"after":1}`}
+	doc := clientcompat.Document{Peers: []clientcompat.PeerInput{{ID: "existing", Alias: clientcompat.StringField{Present: true, Value: "after"}, Note: clientcompat.StringField{Present: true, Value: "new-note"}}}, Tags: []string{"after"}, TagColors: clientcompat.StringField{Present: true, Value: `{"after":1}`}}
 	if err := store.ReplacePersonal(context.Background(), clientcompat.Actor{ID: u.Id}, doc); !errors.Is(err, clientcompat.ErrUnavailable) {
 		t.Fatal("commit failure acknowledged", err)
 	}

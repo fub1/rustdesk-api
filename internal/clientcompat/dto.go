@@ -210,5 +210,5 @@ type PeerInput struct {
 type Document struct {
 	Peers     []PeerInput `json:"peers"`
 	Tags      []string    `json:"tags"`
-	TagColors string      `json:"tag_colors"`
+	TagColors StringField `json:"tag_colors"`
 }

@@ -236,13 +236,23 @@ func (s *Store) Add(ctx context.Context, actor Actor, raw string, p PeerInput) e
 // actor's collection_id=0 peers AND tags. No helper escapes this transaction.
 func (s *Store) ReplacePersonal(ctx context.Context, actor Actor, doc Document) error {
 	// A partial/null document is not an instruction to erase a whole book.
-	// Native legacy snapshots always contain these three top-level fields.
-	if doc.Peers == nil || doc.Tags == nil || doc.TagColors == "" {
+	// Sciter's initial/reset snapshots omit optional color metadata, but still
+	// contain both fact arrays. Explicit invalid metadata is never omission.
+	if doc.Peers == nil || doc.Tags == nil {
 		return ErrInput
 	}
 	colors := map[string]uint{}
-	if json.Unmarshal([]byte(doc.TagColors), &colors) != nil || colors == nil {
-		return ErrInput
+	if doc.TagColors.Present {
+		var provided map[string]*uint
+		if json.Unmarshal([]byte(doc.TagColors.Value), &provided) != nil || provided == nil {
+			return ErrInput
+		}
+		for name, color := range provided {
+			if color == nil {
+				return ErrInput
+			}
+			colors[name] = *color
+		}
 	}
 	seen := map[string]bool{}
 	for _, p := range doc.Peers {

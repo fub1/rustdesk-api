@@ -1,6 +1,10 @@
 # 当前客户端 HTTP 契约与回归矩阵
 
-COMP09 读取切片新增受客户端会话校验的 `POST /api/ab/get`，复用 `GET /api/ab` 的当前用户个人簿读取与失败处理。生产 HTTP/SQLite 回归覆盖双入口响应一致、双层 JSON 字符串、空数组、个人范围、匿名拒绝、数据库故障和取消。本切片未进行真实 Sciter 进程或标准 Flutter GUI 的新增验收；整本写入省略颜色的兼容留在下一切片。
+COMP09 读取切片新增受客户端会话校验的 `POST /api/ab/get`，复用 `GET /api/ab` 的当前用户个人簿读取与失败处理。生产 HTTP/SQLite 回归覆盖双入口响应一致、双层 JSON 字符串、空数组、个人范围、匿名拒绝、数据库故障和取消。本切片未进行真实 Sciter 进程或标准 Flutter GUI 的新增验收；整本写入的后续兼容见下段。
+
+COMP09 写入切片允许 Sciter 初始/重置文档真正省略 `tag_colors`：`tags`/`peers` 仍必须是数组；按提交的 tags 事实重建个人簿，保留仍存在标签的颜色，新标签默认0，删掉的标签不会因旧颜色复活。显式 `"{}"`/部分颜色对象继续保留缺少键的既有颜色；显式0覆盖为0。字段 null/空串/非字符串、字符串内无效对象及颜色成员 null/非整数均拒绝400。没有新增字段或迁移。
+
+`http/sciter_write_compat_test.go` 覆盖初始化/重置、元数据与扩展字段保留、无效输入不写、旧颜色查询失败、第二个标签写失败及明确到达 COMMIT 的回滚；`internal/integration/sciter_addressbook_test.go` 在 MySQL8.0.46/PostgreSQL18.4 验证精确标签名/颜色、个人范围和真实 COMMIT 失败后的完整回滚及重试。这里的 HTTP fixture 与实库测试不代表真实 Sciter 交互验收。
 
 COMP07 已在 COMP08 的统一范围上补齐标签 rename/delete 与 `address_books.tags` 引用的同事务更新：覆盖同 owner/collection 的全部物理行，保留无关标签顺序/重复、其他列和时间戳；只有参与改名的行才合并新名称碰撞。坏 JSON、查询/写入/原始值 CAS 冲突、取消和 COMMIT 失败均整体回滚，不返回空成功。
 

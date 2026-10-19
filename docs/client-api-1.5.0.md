@@ -2,7 +2,7 @@
 
 客户端官方 **1.5.0**，固定 `fada664df7a294d1d1a9ca3e7cd3637069122f17`；hbb_common固定 `229b904508364c8997aad0fb5af57effac859f60`。API静态对照基线 `b59f7a56cd9e90cf48c760d2aca808a7241582f0`（b59f7a5）。只记录客户端 HTTP 契约。
 
-后续实现：COMP09 已新增受鉴权的 `POST /api/ab/get`，读取复用 `GET /api/ab`；生产 HTTP/SQLite 的范围、响应、故障及取消回归见 `http/sciter_addressbook_get_test.go`。当前注册29项、缺失7项；下面 b59f7a5 对照保留修复前的28/8计数。Sciter 整本写入省略颜色的兼容仍在下一切片；真实客户端新增验收尚未完成。
+后续实现：COMP09 已新增受鉴权的 `POST /api/ab/get`，读取复用 `GET /api/ab`；生产 HTTP/SQLite 的范围、响应、故障及取消回归见 `http/sciter_addressbook_get_test.go`。当前注册29项、缺失7项；下面 b59f7a5 对照保留修复前的28/8计数。COMP09 写入切片也兼容初始/重置文档省略颜色：保留仍存标签颜色，新标签默认0，显式无效值拒绝。HTTP/SQLite 与 MySQL/PostgreSQL 事务回归见兼容矩阵；真实客户端新增验收尚未完成。
 
 01–35保持编号，36补Sciter `POST /api/ab/get`。**36是包含保留实现的method/path数，不是36项验收通过**：34项有源码调用链，09/35为当前条件不可达的保留实现；28项注册、8项缺路由。HEAD `/api/login-options` 单列为传输探测，不是第37项业务功能。
 
