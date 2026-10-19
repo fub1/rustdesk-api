@@ -232,6 +232,68 @@ func TestProductionHeartbeatDeviceAndContextBoundaries(t *testing.T) {
 	}
 }
 
+func TestProductionHeartbeatNilStrategyOptionsClearAsJSONObject(t *testing.T) {
+	for _, target := range []string{"default", "default_unbound", "device"} {
+		for _, options := range []string{"omitted", "null", "object"} {
+			t.Run(target+"/"+options, func(t *testing.T) {
+				f := newStrategyFixture(t)
+				peerID, path := "", target+"/update"
+				if target == "default_unbound" {
+					peerID = model.UnboundDefaultPeerId
+					if err := global.DB.Model(&f.peer).Update("alias", "").Error; err != nil {
+						t.Fatal(err)
+					}
+				} else if target == "device" {
+					peerID, path = f.peer.Id, "update"
+				}
+				if target == "device" {
+					strategyAdmin(t, f, "create", fmt.Sprintf(`{"peer_id":%q,"config_options":{"previously-managed":"value"}}`, peerID))
+				} else {
+					strategyAdmin(t, f, path, `{"config_options":{"previously-managed":"value"}}`)
+				}
+				before, current := strategyResponse(t, f.heartbeat(0))
+				if current["previously-managed"] != "value" {
+					t.Fatal("initial policy not delivered")
+				}
+				body := map[string]interface{}{}
+				if target == "device" {
+					var row model.PeerStrategy
+					if err := global.DB.Where("peer_id = ?", peerID).First(&row).Error; err != nil {
+						t.Fatal(err)
+					}
+					body["id"], body["peer_id"] = row.Id, peerID
+				}
+				if options == "null" {
+					body["config_options"] = nil
+				} else if options == "object" {
+					body["config_options"] = map[string]string{}
+				}
+				encoded, err := json.Marshal(body)
+				if err != nil {
+					t.Fatal(err)
+				}
+				strategyAdmin(t, f, path, string(encoded))
+				// Read the raw column instead of AutoJson.Scan, which normalizes
+				// malformed input and could hide an accidentally persisted null.
+				var stored string
+				if err := global.DB.Model(&model.PeerStrategy{}).Select("config_options").Where("peer_id = ?", peerID).Scan(&stored).Error; err != nil {
+					t.Fatal(err)
+				}
+				if stored != "{}" {
+					t.Fatalf("empty full policy stored %q, want {}", stored)
+				}
+				after, cleared := strategyResponse(t, f.heartbeat(before))
+				if value, exists := cleared["previously-managed"]; after == before || !exists || value != "" {
+					t.Fatal("empty replacement did not explicitly clear historical managed key", cleared)
+				}
+				if _, exists := cleared["unmanaged-personal"]; exists {
+					t.Fatal("empty replacement claimed unrelated local key")
+				}
+			})
+		}
+	}
+}
+
 func applyLockedClientPolicy(user, defaults, overwrite, received map[string]string) (map[string]string, map[string]string) {
 	copyMap := func(source map[string]string) map[string]string {
 		result := map[string]string{}

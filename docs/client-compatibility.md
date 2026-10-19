@@ -64,6 +64,8 @@
 
 `modified_at` 已改为最终规范化 `config_options` 的 SHA-256 前 63 位正整数（零映射为 1），与锁定客户端的整数不等比较兼容；不保存 revision 列、不挤占 `PresetModifiedAt`。它避免原时间戳遮挡和同毫秒问题，有限摘要仍有理论碰撞。事务使用显式请求 context 和 Serializable；非 SQLite 以现存父 peer 行锁序列化首次历史创建，SQLite 使用现有连接事务机制。DB/配置或历史 JSON 错误固定安全 503，取消/超时分别 408/504；未知设备/UUID 不符保持 `{}`。历史提交失败不发布配置，BufferHeartbeat 失败也返回固定 503。
 
+管理员策略接口是全量设置：默认策略请求 `{}`、设备策略省略 config_options（仍需合法 id/peer_id），或显式 `config_options:null`，都按清空整份策略处理，统一存成 `{}`，不是 PATCH。`TestProductionHeartbeatNilStrategyOptionsClearAsJSONObject` 用生产路由和 SQLite 验证全局默认、未绑定默认及设备策略的省略/null/空对象设置，随后心跳明确清除历史键。历史库已经存在的 `null`、`[]`、损坏 JSON 或 AbId 指向缺失集合不会被读取端自动当空成功，需管理员明确重存有效对象或修正关联；本修复不推断迁移这些旧数据。
+
 本地 `hbb_common` 子模块未初始化；补充只读核对了锁定提交 `5d52530b636fb296a324260b074780cf559e0093` 的 [config.rs](https://github.com/rustdesk/hbb_common/blob/5d52530b636fb296a324260b074780cf559e0093/src/config.rs#L1148)。`1148–1177,2570–2596` 确认配置优先级及保存过滤；`2616–2645` 的 HARD_SETTINGS 开关只查 HARD map，不会自动回退普通 Config。旧 `docs/peer_strategy.md` 的 HARD 回退说明不能直接当作本版本事实。
 
 可明确验证的空值行为包括：经过 `option2bool` 读取的 `enable-*` 空串为 true、`allow-*` 空串为 false（客户端 `flutter/lib/common.dart:1616–1629`，Rust 锁定 config.rs:2649–2661 同规则）；`access-mode` 清空后退出 full/view 强制模式，回到逐项权限判断（`src/server/connection.rs:2676–2690`）；`whitelist` 清空后没有 IP 限制项（`:1418–1435`）；四个 preset 值可置空。上述均不是永久密码恢复、用户原值恢复或既有地址簿成员关系撤销。网络地址/API/key 等配置清空可能切断后续心跳，不应从“支持写空”推出可无条件回滚整个设备。

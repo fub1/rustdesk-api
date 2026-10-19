@@ -16,6 +16,11 @@ type PeerStrategyForm struct {
 
 // ToPeerStrategy 转换为 model.PeerStrategy
 func (f *PeerStrategyForm) ToPeerStrategy() *model.PeerStrategy {
+	// This is a full replacement form: missing/null options clear the policy.
+	// Persist an object so the strict heartbeat reader can apply that clearing.
+	if f.ConfigOptions == nil {
+		f.ConfigOptions = map[string]string{}
+	}
 	configOptionsJson, _ := json.Marshal(f.ConfigOptions)
 	ps := &model.PeerStrategy{}
 	ps.Id = f.Id
@@ -36,6 +41,9 @@ type DefaultStrategyForm struct {
 }
 
 func (f *DefaultStrategyForm) ToPeerStrategy() *model.PeerStrategy {
+	if f.ConfigOptions == nil {
+		f.ConfigOptions = map[string]string{}
+	}
 	configOptionsJson, _ := json.Marshal(f.ConfigOptions)
 	ps := &model.PeerStrategy{}
 	ps.PeerId = ""
