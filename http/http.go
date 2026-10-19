@@ -14,14 +14,19 @@ import (
 	"github.com/lejianwen/rustdesk-api/v2/global"
 	"github.com/lejianwen/rustdesk-api/v2/http/middleware"
 	"github.com/lejianwen/rustdesk-api/v2/http/router"
+	"github.com/lejianwen/rustdesk-api/v2/internal/httpapi"
 	"github.com/lejianwen/rustdesk-api/v2/service"
+	"github.com/nicksnyder/go-i18n/v2/i18n"
 	"github.com/sirupsen/logrus"
 )
 
 // NewHandler borrows the resources installed by the legacy bootstrap. It does
 // not open connections, migrate, start workers or listen. Existing controllers
 // still use package globals; this is not a multi-instance dependency container.
-func NewHandler() (*gin.Engine, error) {
+func NewHandler(sessions *httpapi.Handler) (*gin.Engine, error) {
+	if sessions == nil {
+		return nil, errors.New("HTTP session handler is required")
+	}
 	if err := validateLegacyResources(); err != nil {
 		return nil, err
 	}
@@ -56,8 +61,8 @@ func NewHandler() (*gin.Engine, error) {
 		g.HTMLRender = render.HTMLDebug{Glob: pattern}
 	}
 	router.WebInit(g)
-	router.Init(g)
-	router.ApiInit(g)
+	router.Init(g, sessions)
+	router.ApiInit(g, sessions)
 	return g, nil
 }
 
@@ -74,15 +79,37 @@ func ConfigureFramework(mode string) error {
 }
 
 // ApiInit is retained for callers of the legacy entry point.
-func ApiInit() error {
+func ApiInit(sessions *httpapi.Handler) error {
 	if err := ConfigureFramework(global.Config.Gin.Mode); err != nil {
 		return err
 	}
-	g, err := NewHandler()
+	g, err := NewHandler(sessions)
 	if err != nil {
 		return err
 	}
 	return Run(g, global.Config.Gin.ApiAddr)
+}
+
+// LegacyTranslator snapshots the localization dependency at composition time.
+// New instance-owned handlers never resolve application globals on requests.
+func LegacyTranslator() httpapi.Translate {
+	localize, defaultLanguage := global.Localizer, global.Config.Lang
+	if defaultLanguage == "" {
+		defaultLanguage = "en"
+	}
+	return func(language, id string) string {
+		if language == "" {
+			language = defaultLanguage
+		}
+		if localize == nil {
+			return id
+		}
+		message, err := localize(language).LocalizeMessage(&i18n.Message{ID: id})
+		if err != nil {
+			return id
+		}
+		return message
+	}
 }
 
 func validateLegacyResources() error {

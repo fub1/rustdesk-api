@@ -5,13 +5,13 @@ import (
 	_ "github.com/lejianwen/rustdesk-api/v2/docs/api"
 	"github.com/lejianwen/rustdesk-api/v2/global"
 	"github.com/lejianwen/rustdesk-api/v2/http/controller/api"
-	"github.com/lejianwen/rustdesk-api/v2/http/middleware"
+	"github.com/lejianwen/rustdesk-api/v2/internal/httpapi"
 	swaggerFiles "github.com/swaggo/files"
 	ginSwagger "github.com/swaggo/gin-swagger"
 	"net/http"
 )
 
-func ApiInit(g *gin.Engine) {
+func ApiInit(g *gin.Engine, sessions *httpapi.Handler) {
 
 	//g.Use(middleware.Cors())
 	//swagger
@@ -59,7 +59,7 @@ func ApiInit(g *gin.Engine) {
 	}
 
 	if global.Config.App.WebClient == 1 {
-		WebClientRoutes(frg)
+		WebClientRoutes(frg, sessions)
 	}
 
 	{
@@ -70,15 +70,13 @@ func ApiInit(g *gin.Engine) {
 		frg.POST("/audit/file", au.AuditFile)
 	}
 
-	frg.Use(middleware.RustAuth())
+	frg.Use(sessions.ClientAuth())
 	{
-		u := &api.User{}
-		frg.GET("/user/info", u.Info)
-		frg.POST("/currentUser", u.Info)
+		frg.GET("/user/info", sessions.ClientCurrent)
+		frg.POST("/currentUser", sessions.ClientCurrent)
 	}
 	{
-		l := &api.Login{}
-		frg.POST("/logout", l.Logout)
+		frg.POST("/logout", sessions.ClientLogout)
 	}
 	{
 		gr := &api.Group{}
@@ -132,15 +130,15 @@ func PersonalRoutes(frg *gin.RouterGroup) {
 
 }
 
-func WebClientRoutes(frg *gin.RouterGroup) {
+func WebClientRoutes(frg *gin.RouterGroup, sessions *httpapi.Handler) {
 	w := &api.WebClient{}
 	{
 		frg.POST("/shared-peer", w.SharedPeer)
 		frg.GET("/query-share-peer", w.QuerySharePeer)
 	}
 	{
-		frg.POST("/server-config", middleware.RustAuth(), w.ServerConfig)
-		frg.POST("/server-config-v2", middleware.RustAuth(), w.ServerConfigV2)
+		frg.POST("/server-config", sessions.ClientAuth(), w.ServerConfig)
+		frg.POST("/server-config-v2", sessions.ClientAuth(), w.ServerConfigV2)
 	}
 
 }

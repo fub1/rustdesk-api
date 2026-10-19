@@ -2,21 +2,8 @@ package middleware
 
 import (
 	"github.com/gin-gonic/gin"
-	"github.com/lejianwen/rustdesk-api/v2/http/response"
-	"github.com/lejianwen/rustdesk-api/v2/service"
+	"github.com/lejianwen/rustdesk-api/v2/internal/httpapi"
 )
 
-// AdminPrivilege ...
-func AdminPrivilege() gin.HandlerFunc {
-	return func(c *gin.Context) {
-		u := service.AllService.UserService.CurUser(c)
-
-		if !service.AllService.UserService.IsAdmin(u) {
-			response.Fail(c, 403, response.TranslateMsg(c, "NoAccess"))
-			c.Abort()
-			return
-		}
-
-		c.Next()
-	}
-}
+// AdminPrivilege delegates to the instance-owned authentication adapter.
+func AdminPrivilege(sessions *httpapi.Handler) gin.HandlerFunc { return sessions.RequireAdmin() }

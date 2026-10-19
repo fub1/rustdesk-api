@@ -2,6 +2,7 @@ package http
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http/httptest"
 	"os"
@@ -9,14 +10,18 @@ import (
 	"sort"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/lejianwen/rustdesk-api/v2/config"
 	"github.com/lejianwen/rustdesk-api/v2/global"
+	"github.com/lejianwen/rustdesk-api/v2/internal/app"
+	"github.com/lejianwen/rustdesk-api/v2/internal/httpapi"
 	"github.com/lejianwen/rustdesk-api/v2/lib/cache"
 	"github.com/lejianwen/rustdesk-api/v2/lib/jwt"
 	"github.com/lejianwen/rustdesk-api/v2/lib/lock"
 	"github.com/lejianwen/rustdesk-api/v2/lib/upload"
+	"github.com/lejianwen/rustdesk-api/v2/model"
 	"github.com/lejianwen/rustdesk-api/v2/service"
 	"github.com/lejianwen/rustdesk-api/v2/utils"
 	"github.com/sirupsen/logrus"
@@ -27,7 +32,7 @@ import (
 
 // Legacy state is installed once per test and never changed concurrently.
 // Resource creation is explicit here, outside NewHandler, and fully cleaned up.
-func installLegacyFixture(t *testing.T) {
+func installLegacyFixture(t *testing.T) *httpapi.Handler {
 	t.Helper()
 	previousConfig, previousDB, previousLog := global.Config, global.DB, global.Logger
 	previousJWT, previousLock, previousCache := global.Jwt, global.Lock, global.Cache
@@ -70,12 +75,21 @@ func installLegacyFixture(t *testing.T) {
 	t.Cleanup(limiter.Close)
 	global.LoginLimiter = limiter
 	service.New(&global.Config, global.DB, global.Logger, global.Jwt, global.Lock)
+	sessions, err := app.NewSessions(global.DB, global.Config.App.TokenExpire, global.Jwt.Key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler, err := httpapi.New(sessions, LegacyTranslator())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return handler
 }
 
 func TestNewHandlerPreservesHTTPContracts(t *testing.T) {
-	installLegacyFixture(t)
+	sessions := installLegacyFixture(t)
 	mode, writer, errorWriter := gin.Mode(), gin.DefaultWriter, gin.DefaultErrorWriter
-	g, err := NewHandler()
+	g, err := NewHandler(sessions)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -116,8 +130,91 @@ func TestNewHandlerPreservesHTTPContracts(t *testing.T) {
 	}
 }
 
+func TestProductionAuthRouteOwnershipAndPrivileges(t *testing.T) {
+	sessions := installLegacyFixture(t)
+	if _, err := NewHandler(nil); err == nil {
+		t.Fatal("missing instance auth accepted")
+	}
+	if err := global.DB.AutoMigrate(&model.User{}, &model.UserToken{}, &model.Peer{}, &model.ServerCmd{}, &model.Oauth{}); err != nil {
+		t.Fatal(err)
+	}
+	global.Config.Admin.Hello = "Welcome {{username}}"
+	global.Jwt.TokenExpireDuration = time.Hour
+	tokens := map[uint]string{}
+	for id := uint(1); id <= 2; id++ {
+		isAdmin := id == 2
+		if err := global.DB.Create(&model.User{IdModel: model.IdModel{Id: id}, Username: fmt.Sprintf("user%d", id), IsAdmin: &isAdmin, Status: model.COMMON_STATUS_ENABLE}).Error; err != nil {
+			t.Fatal(err)
+		}
+		token := global.Jwt.GenerateToken(id)
+		tokens[id] = token
+		if err := global.DB.Create(&model.UserToken{UserId: id, Token: token, ExpiredAt: time.Now().Add(time.Hour).Unix()}).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	g, err := NewHandler(sessions)
+	if err != nil {
+		t.Fatal(err)
+	}
+	call := func(method, path, token string) *httptest.ResponseRecorder {
+		r := httptest.NewRequest(method, path, nil)
+		if token != "" {
+			r.Header.Set("api-token", token)
+		}
+		w := httptest.NewRecorder()
+		g.ServeHTTP(w, r)
+		return w
+	}
+	for _, path := range []string{"/api/admin/rustdesk/cmdList", "/api/admin/oauth/list", "/api/admin/user/list"} {
+		for _, token := range []string{"", tokens[1]} {
+			w := call("GET", path, token)
+			var body struct {
+				Code int `json:"code"`
+			}
+			if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil || body.Code != 403 {
+				t.Fatalf("sensitive route %s accepted ordinary/anonymous: %s", path, w.Body.String())
+			}
+		}
+		w := call("GET", path, tokens[2])
+		var body struct {
+			Code int `json:"code"`
+		}
+		if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil || body.Code != 0 {
+			t.Fatalf("admin route %s: %s", path, w.Body.String())
+		}
+	}
+	if w := call("GET", "/api/admin/user/current", tokens[1]); !strings.Contains(w.Body.String(), `"username":"user1"`) {
+		t.Fatalf("ordinary self-management rejected: %s", w.Body.String())
+	}
+	if w := call("GET", "/api/admin/config/admin", tokens[1]); !strings.Contains(w.Body.String(), "Welcome user1") {
+		t.Fatalf("optional auth did not resolve session: %s", w.Body.String())
+	}
+	if w := call("GET", "/api/admin/config/admin", "bad-token"); strings.Contains(w.Body.String(), "hello") {
+		t.Fatalf("invalid optional auth exposed hello: %s", w.Body.String())
+	}
+	if err := global.DB.Model(&model.User{}).Where("id = ?", 2).Update("is_admin", false).Error; err != nil {
+		t.Fatal(err)
+	}
+	w := call("GET", "/api/admin/rustdesk/cmdList", tokens[2])
+	var body struct {
+		Code int `json:"code"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil || body.Code != 403 {
+		t.Fatalf("demoted administrator retained access: %s", w.Body.String())
+	}
+	// Logout is now registered after authentication, and has exactly one owner.
+	w = call("POST", "/api/admin/logout", tokens[1])
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil || body.Code != 0 {
+		t.Fatalf("logout: %s", w.Body.String())
+	}
+	w = call("GET", "/api/admin/user/current", tokens[1])
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil || body.Code != 403 {
+		t.Fatalf("admin logout left session valid: %s", w.Body.String())
+	}
+}
+
 func TestNewHandlerRequiresConsistentLegacyResources(t *testing.T) {
-	installLegacyFixture(t)
+	sessions := installLegacyFixture(t)
 	checks := []struct {
 		name   string
 		remove func() func()
@@ -158,7 +255,7 @@ func TestNewHandlerRequiresConsistentLegacyResources(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			restore := tc.remove()
 			defer restore()
-			if g, err := NewHandler(); err == nil || g != nil {
+			if g, err := NewHandler(sessions); err == nil || g != nil {
 				t.Fatal("missing dependency accepted")
 			}
 		})
@@ -166,14 +263,14 @@ func TestNewHandlerRequiresConsistentLegacyResources(t *testing.T) {
 }
 
 func TestNewHandlerReportsConfigurationErrors(t *testing.T) {
-	installLegacyFixture(t)
+	sessions := installLegacyFixture(t)
 	global.Config.Gin.TrustProxy = "not-an-address"
-	if _, err := NewHandler(); err == nil || !strings.Contains(err.Error(), "trusted proxies") {
+	if _, err := NewHandler(sessions); err == nil || !strings.Contains(err.Error(), "trusted proxies") {
 		t.Fatalf("proxy error = %v", err)
 	}
 	global.Config.Gin.TrustProxy = ""
 	global.Config.Gin.ResourcesPath = t.TempDir()
-	if _, err := NewHandler(); err == nil || !strings.Contains(err.Error(), "templates") {
+	if _, err := NewHandler(sessions); err == nil || !strings.Contains(err.Error(), "templates") {
 		t.Fatalf("template error = %v", err)
 	}
 	if err := os.Mkdir(filepath.Join(global.Config.Gin.ResourcesPath, "templates"), 0700); err != nil {
@@ -182,7 +279,7 @@ func TestNewHandlerReportsConfigurationErrors(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(global.Config.Gin.ResourcesPath, "templates", "broken.html"), []byte("{{if}}"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := NewHandler(); err == nil || !strings.Contains(err.Error(), "templates") {
+	if _, err := NewHandler(sessions); err == nil || !strings.Contains(err.Error(), "templates") {
 		t.Fatalf("invalid template error = %v", err)
 	}
 	mode := gin.Mode()
@@ -192,8 +289,8 @@ func TestNewHandlerReportsConfigurationErrors(t *testing.T) {
 }
 
 func TestRunReturnsListenError(t *testing.T) {
-	installLegacyFixture(t)
-	g, err := NewHandler()
+	sessions := installLegacyFixture(t)
+	g, err := NewHandler(sessions)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -203,14 +300,14 @@ func TestRunReturnsListenError(t *testing.T) {
 }
 
 func TestLegacyRouteInventory(t *testing.T) {
-	installLegacyFixture(t)
+	sessions := installLegacyFixture(t)
 	for _, tc := range []struct {
 		name     string
 		features int
 	}{{"base", 0}, {"optional", 1}} {
 		t.Run(tc.name, func(t *testing.T) {
 			global.Config.App.WebClient, global.Config.App.ShowSwagger = tc.features, tc.features
-			g, err := NewHandler()
+			g, err := NewHandler(sessions)
 			if err != nil {
 				t.Fatal(err)
 			}

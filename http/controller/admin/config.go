@@ -5,7 +5,6 @@ import (
 	"github.com/lejianwen/rustdesk-api/v2/global"
 	"github.com/lejianwen/rustdesk-api/v2/http/response"
 	"github.com/lejianwen/rustdesk-api/v2/model"
-	"github.com/lejianwen/rustdesk-api/v2/service"
 	"os"
 	"strings"
 )
@@ -62,11 +61,9 @@ func (co *Config) AppConfig(c *gin.Context) {
 func (co *Config) AdminConfig(c *gin.Context) {
 
 	u := &model.User{}
-	token := c.GetHeader("api-token")
-	if token != "" {
-		u, _ = service.AllService.UserService.InfoByAccessToken(token)
-		if !service.AllService.UserService.CheckUserEnable(u) {
-			u.Id = 0
+	if current, ok := c.Get("curUser"); ok {
+		if user, ok := current.(*model.User); ok && user != nil {
+			u = user
 		}
 	}
 

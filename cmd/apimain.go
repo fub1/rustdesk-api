@@ -11,7 +11,9 @@ import (
 	"github.com/lejianwen/rustdesk-api/v2/config"
 	"github.com/lejianwen/rustdesk-api/v2/global"
 	"github.com/lejianwen/rustdesk-api/v2/http"
+	"github.com/lejianwen/rustdesk-api/v2/internal/app"
 	"github.com/lejianwen/rustdesk-api/v2/internal/database"
+	"github.com/lejianwen/rustdesk-api/v2/internal/httpapi"
 	"github.com/lejianwen/rustdesk-api/v2/lib/cache"
 	"github.com/lejianwen/rustdesk-api/v2/lib/jwt"
 	"github.com/lejianwen/rustdesk-api/v2/lib/lock"
@@ -56,7 +58,15 @@ var rootCmd = &cobra.Command{
 		})
 		global.LoginLimiter.RegisterProvider(utils.B64StringCaptchaProvider{})
 		defer global.LoginLimiter.Close()
-		handler, err := http.NewHandler()
+		sessions, err := app.NewSessions(global.DB, global.Config.App.TokenExpire, global.Jwt.Key)
+		if err != nil {
+			return err
+		}
+		authHTTP, err := httpapi.New(sessions, http.LegacyTranslator())
+		if err != nil {
+			return err
+		}
+		handler, err := http.NewHandler(authHTTP)
 		if err != nil {
 			return err
 		}

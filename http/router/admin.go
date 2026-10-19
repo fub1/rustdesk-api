@@ -7,11 +7,12 @@ import (
 	"github.com/lejianwen/rustdesk-api/v2/http/controller/admin"
 	"github.com/lejianwen/rustdesk-api/v2/http/controller/admin/my"
 	"github.com/lejianwen/rustdesk-api/v2/http/middleware"
+	"github.com/lejianwen/rustdesk-api/v2/internal/httpapi"
 	swaggerFiles "github.com/swaggo/files"
 	ginSwagger "github.com/swaggo/gin-swagger"
 )
 
-func Init(g *gin.Engine) {
+func Init(g *gin.Engine, sessions *httpapi.Handler) {
 
 	//swagger
 	//g.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
@@ -23,25 +24,26 @@ func Init(g *gin.Engine) {
 	LoginBind(adg)
 	adg.POST("/user/register", (&admin.User{}).Register)
 
-	ConfigBind(adg)
+	ConfigBind(adg, sessions)
 
 	// 共享地址簿名称列表，无需认证
 	adg.GET("/my/address_book_collection/list_shared", (&my.AddressBookCollection{}).ListShared)
 
-	adg.Use(middleware.BackendUserAuth())
+	adg.Use(sessions.AdminAuth())
+	adg.POST("/logout", sessions.AdminLogout)
 	adg.Use(middleware.OperationLog())
 	//FileBind(adg)
-	UserBind(adg)
-	GroupBind(adg)
-	TagBind(adg)
-	AddressBookBind(adg)
-	PeerBind(adg)
-	OauthBind(adg)
-	LoginLogBind(adg)
-	AuditBind(adg)
-	AddressBookCollectionBind(adg)
-	AddressBookCollectionRuleBind(adg)
-	UserTokenBind(adg)
+	UserBind(adg, sessions)
+	GroupBind(adg, sessions)
+	TagBind(adg, sessions)
+	AddressBookBind(adg, sessions)
+	PeerBind(adg, sessions)
+	OauthBind(adg, sessions)
+	LoginLogBind(adg, sessions)
+	AuditBind(adg, sessions)
+	AddressBookCollectionBind(adg, sessions)
+	AddressBookCollectionRuleBind(adg, sessions)
+	UserTokenBind(adg, sessions)
 
 	//deprecated by ConfigBind
 	//rs := &admin.Rustdesk{}
@@ -49,20 +51,20 @@ func Init(g *gin.Engine) {
 	//adg.GET("/app-config", rs.AppConfig)
 	//deprecated end
 
-	ShareRecordBind(adg)
+	ShareRecordBind(adg, sessions)
 	MyBind(adg)
 
-	RustdeskCmdBind(adg)
-	DeviceGroupBind(adg)
-	PeerStrategyBind(adg)
-	OperationLogBind(adg)
+	RustdeskCmdBind(adg, sessions)
+	DeviceGroupBind(adg, sessions)
+	PeerStrategyBind(adg, sessions)
+	OperationLogBind(adg, sessions)
 	//访问静态文件
 	//g.StaticFS("/upload", http.Dir(global.Config.Gin.ResourcesPath+"/upload"))
 }
 
-func RustdeskCmdBind(adg *gin.RouterGroup) {
+func RustdeskCmdBind(adg *gin.RouterGroup, sessions *httpapi.Handler) {
 	cont := &admin.Rustdesk{}
-	rg := adg.Group("/rustdesk")
+	rg := adg.Group("/rustdesk").Use(sessions.RequireAdmin())
 	rg.POST("/sendCmd", cont.SendCmd)
 	rg.GET("/cmdList", cont.CmdList)
 	rg.POST("/cmdDelete", cont.CmdDelete)
@@ -72,23 +74,22 @@ func LoginBind(rg *gin.RouterGroup) {
 	cont := &admin.Login{}
 	rg.POST("/login", cont.Login)
 	rg.GET("/captcha", cont.Captcha)
-	rg.POST("/logout", cont.Logout)
 	rg.GET("/login-options", cont.LoginOptions)
 	rg.POST("/oidc/auth", cont.OidcAuth)
 	rg.GET("/oidc/auth-query", cont.OidcAuthQuery)
 }
 
-func UserBind(rg *gin.RouterGroup) {
+func UserBind(rg *gin.RouterGroup, sessions *httpapi.Handler) {
 	aR := rg.Group("/user")
 	{
 		cont := &admin.User{}
-		aR.GET("/current", cont.Current)
+		aR.GET("/current", sessions.AdminCurrent)
 		aR.POST("/changeCurPwd", cont.ChangeCurPwd)
 		aR.POST("/myOauth", cont.MyOauth)
 		//aR.GET("/myPeer", cont.MyPeer)
 		aR.POST("/groupUsers", cont.GroupUsers)
 	}
-	aRP := rg.Group("/user").Use(middleware.AdminPrivilege())
+	aRP := rg.Group("/user").Use(sessions.RequireAdmin())
 	{
 		cont := &admin.User{}
 		aRP.GET("/list", cont.List)
@@ -100,8 +101,8 @@ func UserBind(rg *gin.RouterGroup) {
 	}
 }
 
-func GroupBind(rg *gin.RouterGroup) {
-	aR := rg.Group("/group").Use(middleware.AdminPrivilege())
+func GroupBind(rg *gin.RouterGroup, sessions *httpapi.Handler) {
+	aR := rg.Group("/group").Use(sessions.RequireAdmin())
 	{
 		cont := &admin.Group{}
 		aR.GET("/list", cont.List)
@@ -112,8 +113,8 @@ func GroupBind(rg *gin.RouterGroup) {
 	}
 }
 
-func DeviceGroupBind(rg *gin.RouterGroup) {
-	aR := rg.Group("/device_group").Use(middleware.AdminPrivilege())
+func DeviceGroupBind(rg *gin.RouterGroup, sessions *httpapi.Handler) {
+	aR := rg.Group("/device_group").Use(sessions.RequireAdmin())
 	{
 		cont := &admin.DeviceGroup{}
 		aR.GET("/list", cont.List)
@@ -124,8 +125,8 @@ func DeviceGroupBind(rg *gin.RouterGroup) {
 	}
 }
 
-func TagBind(rg *gin.RouterGroup) {
-	aR := rg.Group("/tag").Use(middleware.AdminPrivilege())
+func TagBind(rg *gin.RouterGroup, sessions *httpapi.Handler) {
+	aR := rg.Group("/tag").Use(sessions.RequireAdmin())
 	{
 		cont := &admin.Tag{}
 		aR.GET("/list", cont.List)
@@ -136,13 +137,13 @@ func TagBind(rg *gin.RouterGroup) {
 	}
 }
 
-func AddressBookBind(rg *gin.RouterGroup) {
+func AddressBookBind(rg *gin.RouterGroup, sessions *httpapi.Handler) {
 	aR := rg.Group("/address_book")
 	{
 		cont := &admin.AddressBook{}
 		aR.POST("/shareByWebClient", cont.ShareByWebClient)
 
-		arp := aR.Use(middleware.AdminPrivilege())
+		arp := aR.Use(sessions.RequireAdmin())
 		arp.GET("/list", cont.List)
 		//arp.GET("/detail/:id", cont.Detail)
 		arp.POST("/create", cont.Create)
@@ -153,10 +154,10 @@ func AddressBookBind(rg *gin.RouterGroup) {
 
 	}
 }
-func PeerBind(rg *gin.RouterGroup) {
+func PeerBind(rg *gin.RouterGroup, sessions *httpapi.Handler) {
 	aR := rg.Group("/peer")
 	aR.POST("/simpleData", (&admin.Peer{}).SimpleData)
-	aR.Use(middleware.AdminPrivilege())
+	aR.Use(sessions.RequireAdmin())
 	{
 		cont := &admin.Peer{}
 		aR.GET("/list", cont.List)
@@ -168,7 +169,7 @@ func PeerBind(rg *gin.RouterGroup) {
 	}
 }
 
-func OauthBind(rg *gin.RouterGroup) {
+func OauthBind(rg *gin.RouterGroup, sessions *httpapi.Handler) {
 	aR := rg.Group("/oauth")
 	{
 		cont := &admin.Oauth{}
@@ -178,7 +179,7 @@ func OauthBind(rg *gin.RouterGroup) {
 		aR.POST("/unbind", cont.Unbind)
 		aR.GET("/info", cont.Info)
 	}
-	arp := aR.Use(middleware.AdminPrivilege())
+	arp := aR.Use(sessions.RequireAdmin())
 	{
 		cont := &admin.Oauth{}
 		arp.GET("/list", cont.List)
@@ -190,26 +191,26 @@ func OauthBind(rg *gin.RouterGroup) {
 	}
 
 }
-func LoginLogBind(rg *gin.RouterGroup) {
+func LoginLogBind(rg *gin.RouterGroup, sessions *httpapi.Handler) {
 	cont := &admin.LoginLog{}
-	aR := rg.Group("/login_log").Use(middleware.AdminPrivilege())
+	aR := rg.Group("/login_log").Use(sessions.RequireAdmin())
 	aR.GET("/list", cont.List)
 	aR.POST("/delete", cont.Delete)
 	aR.POST("/batchDelete", cont.BatchDelete)
 }
-func AuditBind(rg *gin.RouterGroup) {
+func AuditBind(rg *gin.RouterGroup, sessions *httpapi.Handler) {
 	cont := &admin.Audit{}
-	aR := rg.Group("/audit_conn").Use(middleware.AdminPrivilege())
+	aR := rg.Group("/audit_conn").Use(sessions.RequireAdmin())
 	aR.GET("/list", cont.ConnList)
 	aR.POST("/delete", cont.ConnDelete)
 	aR.POST("/batchDelete", cont.BatchConnDelete)
-	afR := rg.Group("/audit_file").Use(middleware.AdminPrivilege())
+	afR := rg.Group("/audit_file").Use(sessions.RequireAdmin())
 	afR.GET("/list", cont.FileList)
 	afR.POST("/delete", cont.FileDelete)
 	afR.POST("/batchDelete", cont.BatchFileDelete)
 }
-func AddressBookCollectionBind(rg *gin.RouterGroup) {
-	aR := rg.Group("/address_book_collection").Use(middleware.AdminPrivilege())
+func AddressBookCollectionBind(rg *gin.RouterGroup, sessions *httpapi.Handler) {
+	aR := rg.Group("/address_book_collection").Use(sessions.RequireAdmin())
 	{
 		cont := &admin.AddressBookCollection{}
 		aR.GET("/list", cont.List)
@@ -220,8 +221,8 @@ func AddressBookCollectionBind(rg *gin.RouterGroup) {
 	}
 
 }
-func AddressBookCollectionRuleBind(rg *gin.RouterGroup) {
-	aR := rg.Group("/address_book_collection_rule").Use(middleware.AdminPrivilege())
+func AddressBookCollectionRuleBind(rg *gin.RouterGroup, sessions *httpapi.Handler) {
+	aR := rg.Group("/address_book_collection_rule").Use(sessions.RequireAdmin())
 	{
 		cont := &admin.AddressBookCollectionRule{}
 		aR.GET("/list", cont.List)
@@ -231,20 +232,20 @@ func AddressBookCollectionRuleBind(rg *gin.RouterGroup) {
 		aR.POST("/delete", cont.Delete)
 	}
 }
-func UserTokenBind(rg *gin.RouterGroup) {
-	aR := rg.Group("/user_token").Use(middleware.AdminPrivilege())
+func UserTokenBind(rg *gin.RouterGroup, sessions *httpapi.Handler) {
+	aR := rg.Group("/user_token").Use(sessions.RequireAdmin())
 	cont := &admin.UserToken{}
 	aR.GET("/list", cont.List)
-	aR.POST("/delete", cont.Delete)
-	aR.POST("/batchDelete", cont.BatchDelete)
+	aR.POST("/delete", sessions.DeleteSession)
+	aR.POST("/batchDelete", sessions.DeleteSessions)
 }
-func ConfigBind(rg *gin.RouterGroup) {
+func ConfigBind(rg *gin.RouterGroup, sessions *httpapi.Handler) {
 	aR := rg.Group("/config")
 	rs := &admin.Config{}
 
-	aR.GET("/admin", rs.AdminConfig)
+	aR.GET("/admin", sessions.OptionalAdminAuth(), rs.AdminConfig)
 
-	aR.Use(middleware.BackendUserAuth())
+	aR.Use(sessions.AdminAuth())
 	aR.GET("/server", rs.ServerConfig)
 	aR.GET("/app", rs.AppConfig)
 
@@ -318,8 +319,8 @@ func MyBind(rg *gin.RouterGroup) {
 	}
 }
 
-func PeerStrategyBind(rg *gin.RouterGroup) {
-	aR := rg.Group("/peer_strategy").Use(middleware.AdminPrivilege())
+func PeerStrategyBind(rg *gin.RouterGroup, sessions *httpapi.Handler) {
+	aR := rg.Group("/peer_strategy").Use(sessions.RequireAdmin())
 	{
 		cont := &admin.PeerStrategy{}
 		aR.GET("/list", cont.List)
@@ -334,16 +335,16 @@ func PeerStrategyBind(rg *gin.RouterGroup) {
 	}
 }
 
-func OperationLogBind(rg *gin.RouterGroup) {
-	aR := rg.Group("/operation_log").Use(middleware.AdminPrivilege())
+func OperationLogBind(rg *gin.RouterGroup, sessions *httpapi.Handler) {
+	aR := rg.Group("/operation_log").Use(sessions.RequireAdmin())
 	{
 		cont := &admin.OperationLog{}
 		aR.GET("/list", cont.List)
 	}
 }
 
-func ShareRecordBind(rg *gin.RouterGroup) {
-	aR := rg.Group("/share_record").Use(middleware.AdminPrivilege())
+func ShareRecordBind(rg *gin.RouterGroup, sessions *httpapi.Handler) {
+	aR := rg.Group("/share_record").Use(sessions.RequireAdmin())
 	{
 		cont := &admin.ShareRecord{}
 		aR.GET("/list", cont.List)
