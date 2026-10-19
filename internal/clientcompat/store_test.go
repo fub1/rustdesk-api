@@ -17,7 +17,8 @@ import (
 
 type failingCommitPool struct {
 	gorm.ConnPool
-	db *sql.DB
+	db      *sql.DB
+	reached *bool
 }
 
 func (p failingCommitPool) BeginTx(ctx context.Context, options *sql.TxOptions) (gorm.ConnPool, error) {
@@ -25,12 +26,18 @@ func (p failingCommitPool) BeginTx(ctx context.Context, options *sql.TxOptions) 
 	if err != nil {
 		return nil, err
 	}
-	return &failingCommitTx{Tx: tx}, nil
+	return &failingCommitTx{Tx: tx, reached: p.reached}, nil
 }
 
-type failingCommitTx struct{ *sql.Tx }
+type failingCommitTx struct {
+	*sql.Tx
+	reached *bool
+}
 
 func (tx failingCommitTx) Commit() error {
+	if tx.reached != nil {
+		*tx.reached = true
+	}
 	_ = tx.Tx.Rollback()
 	return errors.New("private commit fault")
 }

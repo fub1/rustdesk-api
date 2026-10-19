@@ -24,16 +24,12 @@ func (s *Store) AddTag(ctx context.Context, actor Actor, raw string, tag Tag) er
 		return ErrInput
 	}
 	return s.transaction(ctx, func(tx *gorm.DB) error {
-		u, err := current(tx, actor)
-		if err != nil {
-			return err
-		}
-		uid, cid, err := scope(tx, u, raw, 2)
+		uid, cid, err := writeScope(tx, actor, raw, 2)
 		if err != nil {
 			return err
 		}
 		var existing []model.Tag
-		if err := tx.Where("user_id = ? AND collection_id = ? AND name = ?", uid, cid, tag.Name).Find(&existing).Error; err != nil {
+		if err := tagRows(tx, uid, cid, []string{tag.Name}).Find(&existing).Error; err != nil {
 			return err
 		}
 		if len(existing) != 0 {
@@ -48,16 +44,12 @@ func (s *Store) RenameTag(ctx context.Context, actor Actor, raw, oldName, newNam
 		return ErrInput
 	}
 	return s.transaction(ctx, func(tx *gorm.DB) error {
-		u, err := current(tx, actor)
-		if err != nil {
-			return err
-		}
-		uid, cid, err := scope(tx, u, raw, 2)
+		uid, cid, err := writeScope(tx, actor, raw, 2)
 		if err != nil {
 			return err
 		}
 		var rows []model.Tag
-		if err := tx.Where("user_id = ? AND collection_id = ? AND name IN ?", uid, cid, []string{oldName, newName}).Order("id ASC").Find(&rows).Error; err != nil {
+		if err := tagRows(tx, uid, cid, []string{oldName, newName}).Find(&rows).Error; err != nil {
 			return err
 		}
 		found := false
@@ -70,7 +62,10 @@ func (s *Store) RenameTag(ctx context.Context, actor Actor, raw, oldName, newNam
 		if !found {
 			return ErrNotFound
 		}
-		return tx.Model(&model.Tag{}).Where("user_id = ? AND collection_id = ? AND name = ?", uid, cid, oldName).Update("name", newName).Error
+		if err := tx.Model(&model.Tag{}).Where("user_id = ? AND collection_id = ? AND id IN ?", uid, cid, tagIDs(rows)).Update("name", newName).Error; err != nil {
+			return err
+		}
+		return rewriteTagReferences(tx, uid, cid, oldName, newName, nil)
 	})
 }
 
@@ -79,22 +74,18 @@ func (s *Store) ColorTag(ctx context.Context, actor Actor, raw string, tag Tag) 
 		return ErrInput
 	}
 	return s.transaction(ctx, func(tx *gorm.DB) error {
-		u, err := current(tx, actor)
-		if err != nil {
-			return err
-		}
-		uid, cid, err := scope(tx, u, raw, 2)
+		uid, cid, err := writeScope(tx, actor, raw, 2)
 		if err != nil {
 			return err
 		}
 		var rows []model.Tag
-		if err := tx.Where("user_id = ? AND collection_id = ? AND name = ?", uid, cid, tag.Name).Find(&rows).Error; err != nil {
+		if err := tagRows(tx, uid, cid, []string{tag.Name}).Find(&rows).Error; err != nil {
 			return err
 		}
 		if len(rows) == 0 {
 			return ErrNotFound
 		}
-		return tx.Model(&model.Tag{}).Where("user_id = ? AND collection_id = ? AND name = ?", uid, cid, tag.Name).Update("color", tag.Color).Error
+		return tx.Model(&model.Tag{}).Where("user_id = ? AND collection_id = ? AND id IN ?", uid, cid, tagIDs(rows)).Update("color", tag.Color).Error
 	})
 }
 
@@ -124,27 +115,25 @@ func (s *Store) DeleteTags(ctx context.Context, actor Actor, raw string, names [
 		return err
 	}
 	return s.transaction(ctx, func(tx *gorm.DB) error {
-		u, err := current(tx, actor)
+		uid, cid, err := writeScope(tx, actor, raw, 3)
 		if err != nil {
 			return err
 		}
-		uid, cid, err := scope(tx, u, raw, 3)
-		if err != nil {
-			return err
-		}
+		removed := make(map[string]bool, len(keys))
 		for _, name := range keys {
 			var rows []model.Tag
-			if err := tx.Where("user_id = ? AND collection_id = ? AND name = ?", uid, cid, name).Find(&rows).Error; err != nil {
+			if err := tagRows(tx, uid, cid, []string{name}).Find(&rows).Error; err != nil {
 				return err
 			}
 			if len(rows) == 0 {
 				return ErrNotFound
 			}
-			if err := tx.Where("user_id = ? AND collection_id = ? AND name = ?", uid, cid, name).Delete(&model.Tag{}).Error; err != nil {
+			if err := tx.Where("user_id = ? AND collection_id = ? AND id IN ?", uid, cid, tagIDs(rows)).Delete(&model.Tag{}).Error; err != nil {
 				return err
 			}
+			removed[name] = true
 		}
-		return nil
+		return rewriteTagReferences(tx, uid, cid, "", "", removed)
 	})
 }
 
@@ -157,17 +146,13 @@ func (s *Store) DeletePeers(ctx context.Context, actor Actor, raw string, ids []
 		return err
 	}
 	return s.transaction(ctx, func(tx *gorm.DB) error {
-		u, err := current(tx, actor)
-		if err != nil {
-			return err
-		}
-		uid, cid, err := scope(tx, u, raw, 3)
+		uid, cid, err := writeScope(tx, actor, raw, 3)
 		if err != nil {
 			return err
 		}
 		for _, id := range keys {
 			var rows []model.AddressBook
-			if err := tx.Where("user_id = ? AND collection_id = ? AND id = ?", uid, cid, id).Find(&rows).Error; err != nil {
+			if err := lockRows(tx).Where("user_id = ? AND collection_id = ? AND id = ?", uid, cid, id).Find(&rows).Error; err != nil {
 				return err
 			}
 			if len(rows) == 0 {

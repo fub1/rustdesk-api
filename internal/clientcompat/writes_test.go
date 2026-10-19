@@ -9,6 +9,7 @@ import (
 
 	"github.com/lejianwen/rustdesk-api/v2/internal/clientcompat"
 	"github.com/lejianwen/rustdesk-api/v2/model"
+	"github.com/lejianwen/rustdesk-api/v2/model/custom_types"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
@@ -37,10 +38,11 @@ func TestSharedWritesReportCommitFailureAndRollback(t *testing.T) {
 			if err := db.Create(&model.Tag{UserId: u.Id, Name: "old", Color: 7}).Error; err != nil {
 				t.Fatal(err)
 			}
-			if err := db.Create(&model.AddressBook{UserId: u.Id, Id: "peer"}).Error; err != nil {
+			if err := db.Create(&model.AddressBook{UserId: u.Id, Id: "peer", Tags: custom_types.AutoJson(`["old"]`)}).Error; err != nil {
 				t.Fatal(err)
 			}
-			faultDB, err := gorm.Open(sqlite.Dialector{Conn: failingCommitPool{ConnPool: pool, db: pool}}, &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)})
+			reached := false
+			faultDB, err := gorm.Open(sqlite.Dialector{Conn: failingCommitPool{ConnPool: pool, db: pool, reached: &reached}}, &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -64,6 +66,9 @@ func TestSharedWritesReportCommitFailureAndRollback(t *testing.T) {
 			if !errors.Is(err, clientcompat.ErrUnavailable) {
 				t.Fatalf("commit failed without unavailable result: %v", err)
 			}
+			if !reached {
+				t.Fatal("test failed before reaching the injected COMMIT failure")
+			}
 			var tags []model.Tag
 			if err := db.Find(&tags).Error; err != nil {
 				t.Fatal(err)
@@ -77,6 +82,10 @@ func TestSharedWritesReportCommitFailureAndRollback(t *testing.T) {
 			}
 			if count != 1 {
 				t.Fatal("peer delete escaped failed commit")
+			}
+			var peer model.AddressBook
+			if err := db.First(&peer).Error; err != nil || string(peer.Tags) != `["old"]` {
+				t.Fatal("reference rewrite escaped failed commit", err)
 			}
 		})
 	}

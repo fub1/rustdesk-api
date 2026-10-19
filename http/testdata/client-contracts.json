@@ -978,7 +978,10 @@
       },
       "contract_document": "docs/client-api-1.5.0.md#contract-17",
       "route_registered_at_inventory_revision": true,
-      "field_freeze_status": "source_summary_not_complete_JSON_Schema"
+      "field_freeze_status": "source_summary_not_complete_JSON_Schema",
+      "implementation_notes": [
+        "COMP07 this client write participates in actor/owner lock ordering with tag mutations; management writers are not all coordinated"
+      ]
     },
     {
       "id": "18",
@@ -1144,7 +1147,10 @@
       },
       "contract_document": "docs/client-api-1.5.0.md#contract-20",
       "route_registered_at_inventory_revision": true,
-      "field_freeze_status": "source_summary_not_complete_JSON_Schema"
+      "field_freeze_status": "source_summary_not_complete_JSON_Schema",
+      "implementation_notes": [
+        "COMP07 this client write participates in actor/owner lock ordering with tag mutations; management writers are not all coordinated"
+      ]
     },
     {
       "id": "21",
@@ -1276,7 +1282,10 @@
       "contract_document": "docs/client-api-1.5.0.md#contract-21",
       "route_registered_at_inventory_revision": true,
       "field_freeze_status": "source_summary_not_complete_JSON_Schema",
-      "condition_notes": "Personal password save {id,hash} and shared {id,password} are exclusive. Recent sync conditionally patches host fields and personal hash."
+      "condition_notes": "Personal password save {id,hash} and shared {id,password} are exclusive. Recent sync conditionally patches host fields and personal hash.",
+      "implementation_notes": [
+        "COMP07 this client write participates in actor/owner lock ordering with tag mutations; management writers are not all coordinated"
+      ]
     },
     {
       "id": "22",
@@ -1332,7 +1341,8 @@
       "verification_level": "production_router_http_sqlite_and_real_mysql_postgresql_store",
       "implementation_notes": [
         "COMP08 uses shared current/scope MAX authorization and exact owner/collection inside request-context transaction; safe dependency errors and whitelisted DTOs",
-        "COMP08 duplicate input keys deduplicated; every matching physical duplicate row in exact scope deleted; any missing key/write/commit failure rolls back complete batch; retry after committed delete returns ItemNotFound"
+        "COMP08 duplicate input keys deduplicated; every matching physical duplicate row in exact scope deleted; any missing key/write/commit failure rolls back complete batch; retry after committed delete returns ItemNotFound",
+        "COMP07 this client write participates in actor/owner lock ordering with tag mutations; management writers are not all coordinated"
       ]
     },
     {
@@ -1349,9 +1359,10 @@
         "http/shared_write_permissions_test.go:TestClientCompatSharedWritesRejectWrongOwnerRules",
         "internal/clientcompat/writes_test.go:TestSharedWritesReportCommitFailureAndRollback",
         "internal/integration/shared_write_test.go:TestClientSharedWriteRulesAndBatchRollback",
-        "internal/integration/shared_write_test.go:TestClientSharedWriteRealCommitFailure"
+        "internal/integration/shared_write_test.go:TestClientSharedWriteRealCommitFailure",
+        "internal/integration/tag_references_test.go:TestClientTagExactNamesAndReferences"
       ],
-      "fixture_status": "COMP08 local production HTTP/SQLite race and real MySQL/PostgreSQL store checks passed; see commit Actions for exact-SHA CI; no real-client acceptance this slice",
+      "fixture_status": "COMP07 production HTTP/SQLite and real MySQL/PostgreSQL tag/reference cases passed locally; see exact commit Actions for full CI; no real-client acceptance this slice",
       "client_variants": [
         {
           "id": "ab_tag_add",
@@ -1388,7 +1399,8 @@
       "field_freeze_status": "source_summary_not_complete_JSON_Schema",
       "verification_level": "production_router_http_sqlite_and_real_mysql_postgresql_store",
       "implementation_notes": [
-        "COMP08 uses shared current/scope MAX authorization and exact owner/collection inside request-context transaction; safe dependency errors and whitelisted DTOs"
+        "COMP08 uses shared current/scope MAX authorization and exact owner/collection inside request-context transaction; safe dependency errors and whitelisted DTOs",
+        "COMP07 tag names use exact string equality across dialects; client writes coordinate on existing actor/owner rows with ascending lock order"
       ]
     },
     {
@@ -1405,9 +1417,16 @@
         "http/shared_write_permissions_test.go:TestClientCompatSharedWritesRejectWrongOwnerRules",
         "internal/clientcompat/writes_test.go:TestSharedWritesReportCommitFailureAndRollback",
         "internal/integration/shared_write_test.go:TestClientSharedWriteRulesAndBatchRollback",
-        "internal/integration/shared_write_test.go:TestClientSharedWriteRealCommitFailure"
+        "internal/integration/shared_write_test.go:TestClientSharedWriteRealCommitFailure",
+        "internal/integration/tag_references_test.go:TestClientTagExactNamesAndReferences",
+        "http/tag_references_compat_test.go:TestClientCompatTagReferencesRenameDelete",
+        "http/tag_references_compat_test.go:TestClientCompatTagReferenceFailuresRollback",
+        "http/tag_references_compat_test.go:TestClientCompatTagUnreferencedRenameDeletePreserveOtherRawTags",
+        "internal/clientcompat/tag_concurrency_test.go:TestSQLiteTagIndependentPoolsSerializeReferences",
+        "internal/integration/tag_references_test.go:TestClientTagConcurrentIndependentPools",
+        "internal/integration/tag_references_test.go:TestClientTagReferencesRealCommitRollback"
       ],
-      "fixture_status": "COMP08 local production HTTP/SQLite race and real MySQL/PostgreSQL store checks passed; see commit Actions for exact-SHA CI; no real-client acceptance this slice",
+      "fixture_status": "COMP07 production HTTP/SQLite and real MySQL/PostgreSQL tag/reference cases passed locally; see exact commit Actions for full CI; no real-client acceptance this slice",
       "client_variants": [
         {
           "id": "ab_tag_rename",
@@ -1445,7 +1464,8 @@
       "verification_level": "production_router_http_sqlite_and_real_mysql_postgresql_store",
       "implementation_notes": [
         "COMP08 uses shared current/scope MAX authorization and exact owner/collection inside request-context transaction; safe dependency errors and whitelisted DTOs",
-        "COMP07 peer.tags reference maintenance and write serialization not yet included in COMP08"
+        "COMP07 tag names use exact string equality across dialects; client writes coordinate on existing actor/owner rows with ascending lock order",
+        "COMP07 catalog mutation and every scoped physical peer.tags reference commit together; unrelated fields/raw rows preserved; malformed storage, CAS/write/commit/cancel failure rolls back; no 1000-row cap"
       ]
     },
     {
@@ -1462,9 +1482,10 @@
         "http/shared_write_permissions_test.go:TestClientCompatSharedWritesRejectWrongOwnerRules",
         "internal/clientcompat/writes_test.go:TestSharedWritesReportCommitFailureAndRollback",
         "internal/integration/shared_write_test.go:TestClientSharedWriteRulesAndBatchRollback",
-        "internal/integration/shared_write_test.go:TestClientSharedWriteRealCommitFailure"
+        "internal/integration/shared_write_test.go:TestClientSharedWriteRealCommitFailure",
+        "internal/integration/tag_references_test.go:TestClientTagExactNamesAndReferences"
       ],
-      "fixture_status": "COMP08 local production HTTP/SQLite race and real MySQL/PostgreSQL store checks passed; see commit Actions for exact-SHA CI; no real-client acceptance this slice",
+      "fixture_status": "COMP07 production HTTP/SQLite and real MySQL/PostgreSQL tag/reference cases passed locally; see exact commit Actions for full CI; no real-client acceptance this slice",
       "client_variants": [
         {
           "id": "ab_tag_color",
@@ -1501,7 +1522,8 @@
       "field_freeze_status": "source_summary_not_complete_JSON_Schema",
       "verification_level": "production_router_http_sqlite_and_real_mysql_postgresql_store",
       "implementation_notes": [
-        "COMP08 uses shared current/scope MAX authorization and exact owner/collection inside request-context transaction; safe dependency errors and whitelisted DTOs"
+        "COMP08 uses shared current/scope MAX authorization and exact owner/collection inside request-context transaction; safe dependency errors and whitelisted DTOs",
+        "COMP07 tag names use exact string equality across dialects; client writes coordinate on existing actor/owner rows with ascending lock order"
       ]
     },
     {
@@ -1518,9 +1540,16 @@
         "http/shared_write_permissions_test.go:TestClientCompatSharedWritesRejectWrongOwnerRules",
         "internal/clientcompat/writes_test.go:TestSharedWritesReportCommitFailureAndRollback",
         "internal/integration/shared_write_test.go:TestClientSharedWriteRulesAndBatchRollback",
-        "internal/integration/shared_write_test.go:TestClientSharedWriteRealCommitFailure"
+        "internal/integration/shared_write_test.go:TestClientSharedWriteRealCommitFailure",
+        "internal/integration/tag_references_test.go:TestClientTagExactNamesAndReferences",
+        "http/tag_references_compat_test.go:TestClientCompatTagReferencesRenameDelete",
+        "http/tag_references_compat_test.go:TestClientCompatTagReferenceFailuresRollback",
+        "http/tag_references_compat_test.go:TestClientCompatTagUnreferencedRenameDeletePreserveOtherRawTags",
+        "internal/clientcompat/tag_concurrency_test.go:TestSQLiteTagIndependentPoolsSerializeReferences",
+        "internal/integration/tag_references_test.go:TestClientTagConcurrentIndependentPools",
+        "internal/integration/tag_references_test.go:TestClientTagReferencesRealCommitRollback"
       ],
-      "fixture_status": "COMP08 local production HTTP/SQLite race and real MySQL/PostgreSQL store checks passed; see commit Actions for exact-SHA CI; no real-client acceptance this slice",
+      "fixture_status": "COMP07 production HTTP/SQLite and real MySQL/PostgreSQL tag/reference cases passed locally; see exact commit Actions for full CI; no real-client acceptance this slice",
       "client_variants": [
         {
           "id": "ab_tag_delete",
@@ -1559,7 +1588,8 @@
       "implementation_notes": [
         "COMP08 uses shared current/scope MAX authorization and exact owner/collection inside request-context transaction; safe dependency errors and whitelisted DTOs",
         "COMP08 duplicate input keys deduplicated; every matching physical duplicate row in exact scope deleted; any missing key/write/commit failure rolls back complete batch; retry after committed delete returns ItemNotFound",
-        "COMP07 peer.tags reference maintenance and write serialization not yet included in COMP08"
+        "COMP07 tag names use exact string equality across dialects; client writes coordinate on existing actor/owner rows with ascending lock order",
+        "COMP07 catalog mutation and every scoped physical peer.tags reference commit together; unrelated fields/raw rows preserved; malformed storage, CAS/write/commit/cancel failure rolls back; no 1000-row cap"
       ]
     },
     {
@@ -2493,6 +2523,20 @@
       "ci": "exact commit Actions is authoritative; not inferred from local checks",
       "real_client": "not run for this slice",
       "remaining": "COMP07 tag references, name equality across dialects, coordinated writes; historical API static snapshot remains b59f7a5"
+    },
+    {
+      "task": "COMP07",
+      "source_inventory_unchanged": true,
+      "business_scope": "same-scope tag rename/delete and all physical peer references in one transaction, exact tag-name comparisons, eight coordinated client writes",
+      "local_targeted_checks": "HTTP1007 rows, malformed/CAS/query/write/cancel/observed COMMIT rollback, SQLite independent pools and MySQL8.0.46/PostgreSQL18.4 concurrent/exact-name/actual COMMIT failure tests passed",
+      "ci": "exact commit Actions is authoritative; not inferred from local checks",
+      "real_client": "not run for this slice",
+      "limits": [
+        "no schema change or added route",
+        "management writers do not all share the owner lock protocol",
+        "future explicit client writes can supply old tags again; no previous-value restoration/version protocol added",
+        "ID change and binary protocols remain paused"
+      ]
     }
   ]
 }

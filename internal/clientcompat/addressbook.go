@@ -159,16 +159,12 @@ func (s *Store) Patch(ctx context.Context, actor Actor, raw string, p Patch) err
 		return err
 	}
 	return s.transaction(ctx, func(tx *gorm.DB) error {
-		u, err := current(tx, actor)
-		if err != nil {
-			return err
-		}
-		uid, cid, err := scope(tx, u, raw, 2)
+		uid, cid, err := writeScope(tx, actor, raw, 2)
 		if err != nil {
 			return err
 		}
 		var rows []model.AddressBook
-		if err := tx.Where("user_id = ? AND collection_id = ? AND id = ?", uid, cid, p.ID).Order("row_id ASC").Find(&rows).Error; err != nil {
+		if err := lockRows(tx).Where("user_id = ? AND collection_id = ? AND id = ?", uid, cid, p.ID).Order("row_id ASC").Find(&rows).Error; err != nil {
 			return err
 		}
 		if len(rows) == 0 {
@@ -224,11 +220,7 @@ func platform(os string) string {
 }
 func (s *Store) Add(ctx context.Context, actor Actor, raw string, p PeerInput) error {
 	return s.transaction(ctx, func(tx *gorm.DB) error {
-		u, err := current(tx, actor)
-		if err != nil {
-			return err
-		}
-		uid, cid, err := scope(tx, u, raw, 2)
+		uid, cid, err := writeScope(tx, actor, raw, 2)
 		if err != nil {
 			return err
 		}
@@ -260,12 +252,12 @@ func (s *Store) ReplacePersonal(ctx context.Context, actor Actor, doc Document) 
 		seen[p.ID] = true
 	}
 	return s.transaction(ctx, func(tx *gorm.DB) error {
-		u, err := current(tx, actor)
+		u, err := writeActor(tx, actor, actor.ID)
 		if err != nil {
 			return err
 		}
 		var existing []model.AddressBook
-		if err := tx.Where("user_id = ? AND collection_id = 0", u.Id).Order("row_id ASC").Find(&existing).Error; err != nil {
+		if err := lockRows(tx).Where("user_id = ? AND collection_id = 0", u.Id).Order("row_id ASC").Find(&existing).Error; err != nil {
 			return err
 		}
 		present := map[string]bool{}
@@ -311,7 +303,7 @@ func (s *Store) ReplacePersonal(ctx context.Context, actor Actor, doc Document) 
 			}
 		}
 		var previousTags []model.Tag
-		if err := tx.Where("user_id = ? AND collection_id = 0", u.Id).Order("id ASC").Find(&previousTags).Error; err != nil {
+		if err := lockRows(tx).Where("user_id = ? AND collection_id = 0", u.Id).Order("id ASC").Find(&previousTags).Error; err != nil {
 			return err
 		}
 		previousColors := map[string]uint{}

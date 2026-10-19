@@ -1,8 +1,14 @@
 # 当前客户端 HTTP 契约与回归矩阵
 
+COMP07 已在 COMP08 的统一范围上补齐标签 rename/delete 与 `address_books.tags` 引用的同事务更新：覆盖同 owner/collection 的全部物理行，保留无关标签顺序/重复、其他列和时间戳；只有参与改名的行才合并新名称碰撞。坏 JSON、查询/写入/原始值 CAS 冲突、取消和 COMMIT 失败均整体回滚，不返回空成功。
+
+客户端标签名按精确字符串处理，MySQL 的默认大小写/重音/尾空格折叠不会扩大匹配范围；后续写入按已识别 tag 主键进行。八个客户端写动作（标签四项、peer 增改删、legacy 整本替换）在首次快照读取前按 user ID 升序协调 actor/owner 锁，保持现有 user→session 锁序。管理端并非全部参与此锁规则；SQLite 使用现有事务写锁，冲突失败回滚。CAS 和本次事务不阻止以后一个显式新请求重新提交旧标签。
+
+新增证据：`http/tag_references_compat_test.go` 的 1007 条引用、个人/共享、重复物理 ID、扩展字段/时间戳保护及失败闭合；`internal/clientcompat/tag_concurrency_test.go` 的 SQLite 独立连接池；`internal/integration/tag_references_test.go` 的 MySQL/PostgreSQL 不同标签并发保全、同目标冲突、精确名称和真实 COMMIT 失败/重试。COMMIT 注入测试显式验证到达故障点，避免以提前失败冒充提交回滚。以上定向用例本地通过，最终全仓及同 SHA 验证见相应提交 Actions；本切片未进行真实 GUI 或部署验收。
+
 COMP08 后续切片已统一 tag add/rename/color/delete 与 peer delete 的共享写权限：复用 `current/scope` 的有效 MAX 规则、owner/collection 范围及请求 Context；批量删除同事务，缺项/写入/提交失败整体回滚，重复输入去重，历史重复物理行按精确资源范围全部删除。输入只接客户端字段，查询故障不再继续创建或泄露数据库错误。
 
-本切片已通过 Go1.23.10/CGO1 的全仓 race/vet/build、生产 router+SQLite 回归，以及独立 MySQL8.0.46/PostgreSQL18.4 的 MAX/错误 owner/批量回滚和真实 COMMIT 失败测试；确切提交 CI 见 Actions，不能从本地结果推定。没有进行这一切片的真实客户端操作。新增证据为 `http/shared_write_permissions_test.go`、`internal/clientcompat/writes_test.go` 和 `internal/integration/shared_write_test.go`。COMP07 标签引用联动、名称跨库精确比较和写入串行化在下一切片；下表及 1.5.0 文档中的 b59f7a5 静态 GAP 仍保留为修复前对照。
+COMP08 切片已通过 Go1.23.10/CGO1 的全仓 race/vet/build、生产 router+SQLite 回归，以及独立 MySQL8.0.46/PostgreSQL18.4 的 MAX/错误 owner/批量回滚和真实 COMMIT 失败测试；确切提交 CI 见 Actions，不能从本地结果推定。没有进行这一切片的真实客户端操作。新增证据为 `http/shared_write_permissions_test.go`、`internal/clientcompat/writes_test.go` 和 `internal/integration/shared_write_test.go`。当时未含的标签引用/精确名称/写入协调由上述 COMP07 补齐；下表及 1.5.0 文档中的 b59f7a5 静态 GAP 仍保留为修复前对照。
 
 本矩阵固定官方 RustDesk **1.5.0** 客户端 `fada664df7a294d1d1a9ca3e7cd3637069122f17`，API静态盘点固定 `b59f7a56cd9e90cf48c760d2aca808a7241582f0`（b59f7a5）。这是 **36项（含保留实现）的回归清单，不是36/36通过声明**。旧01–35稳定，36补Sciter `POST /api/ab/get`。机器元数据见 [client-contracts.json](../http/testdata/client-contracts.json)；字段、同路径变体、条件与固定源码链接见 [1.5.0 HTTP契约](client-api-1.5.0.md)。
 
