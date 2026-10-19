@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"errors"
 	"math/rand"
 	"strconv"
@@ -8,12 +9,19 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/lejianwen/rustdesk-api/v2/internal/auth"
 	"github.com/lejianwen/rustdesk-api/v2/model"
+	"github.com/lejianwen/rustdesk-api/v2/model/custom_types"
 	"github.com/lejianwen/rustdesk-api/v2/utils"
 	"gorm.io/gorm"
+	"gorm.io/gorm/logger"
 )
 
 type UserService struct {
+	db          *gorm.DB
+	issuer      *auth.Issuer
+	issuanceErr error
+	authTimeout time.Duration
 }
 
 // InfoById 根据用户id取用户信息
@@ -85,31 +93,41 @@ func (us *UserService) InfoByAccessToken(token string) (*model.User, *model.User
 	return u, ut
 }
 
-// GenerateToken 生成token
-func (us *UserService) GenerateToken(u *model.User) string {
-	if len(Jwt.Key) > 0 {
-		return Jwt.GenerateToken(u.Id)
+// Login 登录
+func (us *UserService) Login(ctx context.Context, u *model.User, llog *model.LoginLog) (*model.UserToken, error) {
+	if us == nil || us.issuer == nil || us.issuanceErr != nil {
+		return nil, auth.ErrUnavailable
 	}
-	return utils.Md5(u.Username + time.Now().String())
+	if u == nil || llog == nil || u.Id == 0 {
+		return nil, auth.ErrInvalidInput
+	}
+	ctx, cancel := us.operationContext(ctx)
+	defer cancel()
+	expected := u.Password
+	p, err := us.issuer.Issue(ctx, auth.IssueRequest{UserID: u.Id, ExpectedPassword: &expected,
+		DeviceID: llog.DeviceId, DeviceUUID: llog.Uuid, Client: llog.Client,
+		Platform: llog.Platform, IP: llog.Ip, Method: llog.Type})
+	if err != nil {
+		return nil, err
+	}
+	admin := p.User.IsAdmin
+	*u = model.User{IdModel: model.IdModel{Id: p.User.ID}, Username: p.User.Username,
+		Email: p.User.Email, Password: p.User.PasswordHash, Nickname: p.User.Nickname,
+		Avatar: p.User.Avatar, GroupId: p.User.GroupID, IsAdmin: &admin,
+		Status: model.COMMON_STATUS_ENABLE, Remark: p.User.Remark,
+		TimeModel: model.TimeModel{CreatedAt: custom_types.AutoTime(p.User.CreatedAt), UpdatedAt: custom_types.AutoTime(p.User.UpdatedAt)}}
+	llog.UserId, llog.UserTokenId = p.User.ID, p.Session.ID
+	return &model.UserToken{IdModel: model.IdModel{Id: p.Session.ID}, UserId: p.Session.UserID,
+		Token: p.Session.Token, DeviceUuid: p.Session.DeviceUUID, DeviceId: p.Session.DeviceID,
+		ExpiredAt: p.Session.ExpiresAt.Unix()}, nil
 }
 
-// Login 登录
-func (us *UserService) Login(u *model.User, llog *model.LoginLog) *model.UserToken {
-	token := us.GenerateToken(u)
-	ut := &model.UserToken{
-		UserId:     u.Id,
-		Token:      token,
-		DeviceUuid: llog.Uuid,
-		DeviceId:   llog.DeviceId,
-		ExpiredAt:  us.UserTokenExpireTimestamp(),
+func (us *UserService) operationContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	budget := us.authTimeout
+	if budget <= 0 {
+		budget = 5 * time.Second
 	}
-	DB.Create(ut)
-	llog.UserTokenId = ut.UserId
-	DB.Create(llog)
-	if llog.Uuid != "" {
-		AllService.PeerService.UuidBindUserId(llog.DeviceId, llog.Uuid, u.Id)
-	}
-	return ut
+	return context.WithTimeout(ctx, budget)
 }
 
 // CurUser 获取当前用户
@@ -209,45 +227,46 @@ func (us *UserService) Logout(u *model.User, token string) error {
 	return nil
 }
 
-// Delete 删除用户和oauth信息
+// Delete retains the CLI compatibility entry point.
 func (us *UserService) Delete(u *model.User) error {
-	userCount := us.getAdminUserCount()
-	if userCount <= 1 && us.IsAdmin(u) {
-		return errors.New("The last admin user cannot be deleted")
+	return us.DeleteContext(context.Background(), u)
+}
+
+// DeleteContext removes identity, sessions and peer ownership in one transaction.
+func (us *UserService) DeleteContext(ctx context.Context, u *model.User) error {
+	if us == nil || us.db == nil {
+		return auth.ErrUnavailable
 	}
-	tx := DB.Begin()
-	// 删除用户
-	if err := tx.Delete(u).Error; err != nil {
-		tx.Rollback()
-		return err
+	if u == nil || u.Id == 0 {
+		return auth.ErrInvalidInput
 	}
-	// 删除关联的 OAuth 信息
-	if err := tx.Where("user_id = ?", u.Id).Delete(&model.UserThird{}).Error; err != nil {
-		tx.Rollback()
-		return err
-	}
-	//  删除关联的ab
-	if err := tx.Where("user_id = ?", u.Id).Delete(&model.AddressBook{}).Error; err != nil {
-		tx.Rollback()
-		return err
-	}
-	//  删除关联的abc
-	if err := tx.Where("user_id = ?", u.Id).Delete(&model.AddressBookCollection{}).Error; err != nil {
-		tx.Rollback()
-		return err
-	}
-	//  删除关联的abcr
-	if err := tx.Where("user_id = ?", u.Id).Delete(&model.AddressBookCollectionRule{}).Error; err != nil {
-		tx.Rollback()
-		return err
-	}
-	tx.Commit()
-	// 删除关联的peer
-	if err := AllService.PeerService.EraseUserId(u.Id); err != nil {
-		Logger.Warn("User deleted successfully, but failed to unlink peer.")
-		return nil
-	}
-	return nil
+	ctx, cancel := us.operationContext(ctx)
+	defer cancel()
+	return us.db.Session(&gorm.Session{Logger: logger.Default.LogMode(logger.Silent)}).WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var current model.User
+		if err := tx.First(&current, u.Id).Error; err != nil {
+			return err
+		}
+		if us.IsAdmin(&current) {
+			var count int64
+			if err := tx.Model(&model.User{}).Where("is_admin = ?", true).Count(&count).Error; err != nil {
+				return err
+			}
+			if count <= 1 {
+				return errors.New("The last admin user cannot be deleted")
+			}
+		}
+		for _, row := range []interface{}{&model.OIDCIdentity{}, &model.UserThird{}, &model.UserToken{},
+			&model.AddressBook{}, &model.AddressBookCollection{}, &model.AddressBookCollectionRule{}} {
+			if err := tx.Where("user_id = ?", u.Id).Delete(row).Error; err != nil {
+				return err
+			}
+		}
+		if err := tx.Model(&model.Peer{}).Where("user_id = ?", u.Id).Update("user_id", 0).Error; err != nil {
+			return err
+		}
+		return tx.Delete(&current).Error
+	})
 }
 
 // Update 更新
@@ -279,18 +298,42 @@ func (us *UserService) FlushTokenByUuids(uuids []string) error {
 	return DB.Where("device_uuid in (?)", uuids).Delete(&model.UserToken{}).Error
 }
 
-// UpdatePassword 更新密码
+// UpdatePassword retains the CLI compatibility entry point.
 func (us *UserService) UpdatePassword(u *model.User, password string) error {
-	var err error
-	u.Password, err = utils.EncryptPassword(password)
+	return us.UpdatePasswordContext(context.Background(), u, password)
+}
+
+// UpdatePasswordContext commits the password and revocation together. The
+// expected hash prevents a stale password check from overwriting a newer change.
+func (us *UserService) UpdatePasswordContext(ctx context.Context, u *model.User, password string) error {
+	if us == nil || us.db == nil {
+		return auth.ErrUnavailable
+	}
+	if u == nil || u.Id == 0 {
+		return auth.ErrInvalidInput
+	}
+	ctx, cancel := us.operationContext(ctx)
+	defer cancel()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	hash, err := utils.EncryptPassword(password)
 	if err != nil {
 		return err
 	}
-	err = DB.Model(u).Update("password", u.Password).Error
-	if err != nil {
-		return err
+	err = us.db.Session(&gorm.Session{Logger: logger.Default.LogMode(logger.Silent)}).WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		result := tx.Model(&model.User{}).Where("id = ? AND password = ?", u.Id, u.Password).Update("password", hash)
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected != 1 {
+			return auth.ErrUnauthenticated
+		}
+		return tx.Where("user_id = ?", u.Id).Delete(&model.UserToken{}).Error
+	})
+	if err == nil {
+		u.Password = hash
 	}
-	err = us.FlushToken(u)
 	return err
 }
 
@@ -320,62 +363,11 @@ func (us *UserService) InfoByOauthId(op string, openId string) *model.User {
 	return u
 }
 
-// RegisterByOauth 注册
+// RegisterByOauth is deliberately disabled. The former implementation linked
+// accounts by email; external admission now requires the verified issuer/sub
+// identity transaction rather than this legacy provider-name lookup.
 func (us *UserService) RegisterByOauth(oauthUser *model.OauthUser, op string) (error, *model.User) {
-	Lock.Lock("registerByOauth")
-	defer Lock.UnLock("registerByOauth")
-	ut := AllService.OauthService.UserThirdInfo(op, oauthUser.OpenId)
-	if ut.Id != 0 {
-		return nil, us.InfoById(ut.UserId)
-	}
-	err, oauthType := AllService.OauthService.GetTypeByOp(op)
-	if err != nil {
-		return err, nil
-	}
-	//check if this email has been registered
-	email := oauthUser.Email
-	// only email is not empty
-	if email != "" {
-		email = strings.ToLower(email)
-		// update email to oauthUser, in case it contain upper case
-		oauthUser.Email = email
-		// call this, if find user by email, it will update the email to local database
-		user, ldapErr := AllService.LdapService.GetUserInfoByEmailLocal(email)
-		// If we enable ldap, and the error is not ErrLdapUserNotFound, return the error because we could not sure if the user is not found in ldap
-		if !(errors.Is(ldapErr, ErrLdapNotEnabled) || errors.Is(ldapErr, ErrLdapUserNotFound) || ldapErr == nil) {
-			return ldapErr, user
-		}
-		if user.Id == 0 {
-			// this means the user is not found in ldap, maybe ldao is not enabled
-			user = us.InfoByEmail(email)
-		}
-		if user.Id != 0 {
-			ut.FromOauthUser(user.Id, oauthUser, oauthType, op)
-			DB.Create(ut)
-			return nil, user
-		}
-	}
-
-	tx := DB.Begin()
-	ut = &model.UserThird{}
-	ut.FromOauthUser(0, oauthUser, oauthType, op)
-	// The initial username should be formatted
-	username := us.formatUsername(oauthUser.Username)
-	usernameUnique := us.GenerateUsernameByOauth(username)
-	user := &model.User{
-		Username: usernameUnique,
-		GroupId:  1,
-	}
-	oauthUser.ToUser(user, false)
-	tx.Create(user)
-	if user.Id == 0 {
-		tx.Rollback()
-		return errors.New("OauthRegisterFailed"), user
-	}
-	ut.UserId = user.Id
-	tx.Create(ut)
-	tx.Commit()
-	return nil, user
+	return errors.New("legacy OAuth registration is unsupported; use verified OIDC identity admission"), nil
 }
 
 // GenerateUsernameByOauth 生成用户名

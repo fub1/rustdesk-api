@@ -5,6 +5,8 @@ import (
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
+	"net/url"
+	"strings"
 	"time"
 )
 
@@ -20,6 +22,15 @@ func NewSqlite(sqliteConf *SqliteConfig, logwriter logger.Writer) (*gorm.DB, err
 	if dsn == "" {
 		dsn = "./data/rustdeskapi.db?_txlock=immediate&_journal_mode=WAL&_busy_timeout=5000"
 	}
+	path, query, _ := strings.Cut(dsn, "?")
+	options, err := url.ParseQuery(query)
+	if err != nil {
+		return nil, fmt.Errorf("invalid sqlite connection options")
+	}
+	// The OIDC identity link has a real user FK. Enable enforcement on every
+	// pooled connection, rather than issuing a connection-local PRAGMA once.
+	options.Set("_foreign_keys", "on")
+	dsn = path + "?" + options.Encode()
 	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{
 		DisableForeignKeyConstraintWhenMigrating: true,
 		Logger: logger.New(

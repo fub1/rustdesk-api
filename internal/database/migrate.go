@@ -93,11 +93,24 @@ func migrateSchema(db *gorm.DB) error {
 	if err := db.AutoMigrate(
 		&model.Version{}, &model.User{}, &model.UserToken{}, &model.Tag{},
 		&model.AddressBook{}, &model.Peer{}, &model.Group{}, &model.UserThird{},
-		&model.Oauth{}, &model.LoginLog{}, &model.ShareRecord{}, &model.AuditConn{},
+		&model.Oauth{}, &model.OIDCIdentity{}, &model.LoginLog{}, &model.ShareRecord{}, &model.AuditConn{},
 		&model.AuditFile{}, &model.AddressBookCollection{}, &model.AddressBookCollectionRule{},
 		&model.ServerCmd{}, &model.DeviceGroup{}, &model.PeerStrategy{}, &model.OperationLog{},
 	); err != nil {
 		return fmt.Errorf("migrate schema: %w", err)
+	}
+	if db.Dialector.Name() == "mysql" {
+		// OIDC issuer and subject are byte-exact, independently of the
+		// installation's collation or trailing-space comparison rules. This new table has no legacy
+		// bindings to infer or backfill.
+		if err := db.Exec("ALTER TABLE oidc_identities MODIFY issuer VARBINARY(512) NOT NULL, MODIFY sub VARBINARY(255) NOT NULL").Error; err != nil {
+			return fmt.Errorf("set OIDC identity collation: %w", err)
+		}
+	}
+	if !db.Migrator().HasConstraint(&model.OIDCIdentity{}, "User") {
+		if err := db.Migrator().CreateConstraint(&model.OIDCIdentity{}, "User"); err != nil {
+			return fmt.Errorf("create OIDC identity user foreign key: %w", err)
+		}
 	}
 	return nil
 }

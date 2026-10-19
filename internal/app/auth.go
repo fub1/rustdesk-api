@@ -25,3 +25,11 @@ func NewSessions(db *gorm.DB, ttl time.Duration, jwtKey []byte) (*auth.Service, 
 	}
 	return auth.New(auth.Dependencies{Store: store, Verifier: verifier, TTL: ttl})
 }
+
+func NewIssuer(db *gorm.DB, ttl time.Duration, jwtKey []byte) (*auth.Issuer, error) {
+	store, err := authstore.New(db)
+	if err != nil {
+		return nil, err
+	}
+	return auth.NewIssuer(store, sessiontoken.NewIssuer(jwtKey), ttl, nil)
+}

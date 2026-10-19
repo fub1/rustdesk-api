@@ -129,10 +129,41 @@ Actions dependencies are pinned to commit SHAs. A validation artifact is built
 from the tested revision and records its SHA and toolchain. Details and local
 commands are in [testing.md](testing.md); validation does not publish releases.
 
+## ARCH 04: committed issuance and explicit identity links
+
+An instance-owned `auth.Issuer`, cryptographic token issuer and GORM issuance
+store now commit the local session, login log (referencing the actual token
+row ID) and existing peer binding in one transaction. The current user must
+still exist and be enabled. Password logins also compare the password hash
+that was authenticated, rejecting a concurrent password change. Opaque sessions
+use 32 random bytes; signed sessions use the same random material for their jti.
+No token is returned after a persistence or commit failure.
+
+The legacy password/LDAP HTTP flows call this issuer through an explicitly
+installed bridge with a request-derived budget. Password change plus session
+revocation, and user deletion plus identity/session/device cleanup, are atomic.
+Legacy account lookup/LDAP verification and ordinary business CRUD remain legacy.
+The old email-based OAuth registration helper is disabled.
+
+Database version 275 adds only `oidc_identities`: id, issuer, sub, user_id,
+with a unique issuer/sub key and a user foreign key. This model was explicitly
+approved before implementation. Existing UserThird/op/email data is not copied.
+SQLite connections now enable foreign keys on every pooled connection. MySQL
+uses byte-exact binary issuer/subject columns to preserve case and trailing
+spaces; real MySQL/PostgreSQL migration verification remains outstanding.
+
+The identity adapter provides admission/binding transactions for ARCH 05.
+Registration-closed identities are rejected; explicit auto_register creates a
+new ordinary account, never an account selected by email or username. Existing
+users bind while authenticated; binding rechecks the initiating session and
+enabled user within the transaction. A unique identity cannot bind to two users.
+User, identity, token, login log and peer changes share the login transaction.
+Provider identity/client changes invalidate a pending snapshot. The network
+protocol and browser challenge routing are the next slice.
+
 ## Next slices
 
-ARCH 04/05 cover
-identity/session transactions and atomic OIDC login attempts; the startup
+ARCH 05 covers atomic OIDC login attempts and protocol routing; the startup
 migration failure portion is already documented in
 [migration-recovery.md](migration-recovery.md). ARCH 06 completes lifecycle
 management, and ARCH 07 handles the first client compatibility fixes.
@@ -140,4 +171,5 @@ management, and ARCH 07 handles the first client compatibility fixes.
 Our API will act as a standards-compliant OIDC relying party adapting to our
 OIDC provider's requirements (including public client, no secret and S256).
 The provider must not be changed to accommodate assumptions in this fork.
-No OIDC behavior is changed by the current foundation work.
+ARCH 04 establishes persistence boundaries; complete OIDC login is not yet
+claimed by that commit.

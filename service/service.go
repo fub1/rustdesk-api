@@ -1,7 +1,10 @@
 package service
 
 import (
+	"time"
+
 	"github.com/lejianwen/rustdesk-api/v2/config"
+	"github.com/lejianwen/rustdesk-api/v2/internal/app"
 	"github.com/lejianwen/rustdesk-api/v2/lib/jwt"
 	"github.com/lejianwen/rustdesk-api/v2/lib/lock"
 	"github.com/lejianwen/rustdesk-api/v2/model"
@@ -51,6 +54,20 @@ func New(c *config.Config, g *gorm.DB, l *log.Logger, j *jwt.Jwt, lo lock.Locker
 	Jwt = j
 	Lock = lo
 	AllService = new(Service)
+	var key []byte
+	if j != nil {
+		key = j.Key
+	}
+	var ttl time.Duration
+	budget := 5 * time.Second
+	if c != nil {
+		ttl = c.App.TokenExpire
+		if c.App.AuthTimeout > 0 {
+			budget = c.App.AuthTimeout
+		}
+	}
+	issuer, err := app.NewIssuer(g, ttl, key)
+	AllService.UserService = &UserService{db: g, issuer: issuer, issuanceErr: err, authTimeout: budget}
 	return AllService
 }
 

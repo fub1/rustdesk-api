@@ -30,7 +30,7 @@ func (o *Oauth) OidcAuth(c *gin.Context) {
 	f := &api.OidcAuthRequest{}
 	err := c.ShouldBindJSON(&f)
 	if err != nil {
-		response.Error(c, response.TranslateMsg(c, "ParamsError")+err.Error())
+		response.Error(c, response.TranslateMsg(c, "ParamsError"))
 		return
 	}
 
@@ -38,7 +38,7 @@ func (o *Oauth) OidcAuth(c *gin.Context) {
 
 	err, state, verifier, nonce, url := oauthService.BeginAuth(f.Op)
 	if err != nil {
-		response.Error(c, response.TranslateMsg(c, err.Error()))
+		response.Error(c, response.TranslateMsg(c, "LoginFailed"))
 		return
 	}
 
@@ -67,7 +67,7 @@ func (o *Oauth) OidcAuthQueryPre(c *gin.Context) (*model.User, *model.UserToken)
 
 	// 解析查询参数并处理错误
 	if err := c.ShouldBindQuery(q); err != nil {
-		response.Error(c, response.TranslateMsg(c, "ParamsError")+": "+err.Error())
+		response.Error(c, response.TranslateMsg(c, "ParamsError")+": ")
 		return nil, nil
 	}
 
@@ -92,11 +92,9 @@ func (o *Oauth) OidcAuthQueryPre(c *gin.Context) (*model.User, *model.UserToken)
 		return nil, nil
 	}
 
-	// 删除 OAuth 缓存
-	service.AllService.OauthService.DeleteOauthCache(q.Code)
-
 	// 创建登录日志并生成用户令牌
-	ut = service.AllService.UserService.Login(u, &model.LoginLog{
+	var issueErr error
+	ut, issueErr = service.AllService.UserService.Login(c.Request.Context(), u, &model.LoginLog{
 		UserId:   u.Id,
 		Client:   v.DeviceType,
 		DeviceId: v.Id,
@@ -106,10 +104,12 @@ func (o *Oauth) OidcAuthQueryPre(c *gin.Context) (*model.User, *model.UserToken)
 		Platform: v.DeviceOs,
 	})
 
-	if ut == nil {
-		response.Error(c, response.TranslateMsg(c, "LoginFailed"))
+	if issueErr != nil || ut == nil {
+		writeIssuanceFailure(c, issueErr)
 		return nil, nil
 	}
+
+	service.AllService.OauthService.DeleteOauthCache(q.Code)
 
 	// 返回用户令牌
 	return u, ut
@@ -175,7 +175,7 @@ func (o *Oauth) OauthCallback(c *gin.Context) {
 	if err != nil {
 		c.HTML(http.StatusOK, "oauth_fail.html", gin.H{
 			"message":     "OauthFailed",
-			"sub_message": err.Error(),
+			"sub_message": "Authorization could not be completed",
 		})
 		return
 	}
@@ -235,7 +235,7 @@ func (o *Oauth) OauthCallback(c *gin.Context) {
 			err, user = service.AllService.UserService.RegisterByOauth(oauthUser, op)
 			if err != nil {
 				c.HTML(http.StatusOK, "oauth_fail.html", gin.H{
-					"message": err.Error(),
+					"message": "OauthRegisterFailed",
 				})
 				return
 			}

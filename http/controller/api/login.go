@@ -1,6 +1,9 @@
 package api
 
 import (
+	"context"
+	"errors"
+
 	"encoding/json"
 	"fmt"
 	"github.com/gin-gonic/gin"
@@ -8,6 +11,7 @@ import (
 	"github.com/lejianwen/rustdesk-api/v2/http/request/api"
 	"github.com/lejianwen/rustdesk-api/v2/http/response"
 	apiResp "github.com/lejianwen/rustdesk-api/v2/http/response/api"
+	"github.com/lejianwen/rustdesk-api/v2/internal/auth"
 	"github.com/lejianwen/rustdesk-api/v2/model"
 	"github.com/lejianwen/rustdesk-api/v2/service"
 	"github.com/lejianwen/rustdesk-api/v2/utils"
@@ -43,7 +47,7 @@ func (l *Login) Login(c *gin.Context) {
 	if err != nil {
 		loginLimiter.RecordFailedAttempt(clientIp)
 		global.Logger.Warn(fmt.Sprintf("Login Fail: %s %s %s", "ParamsError", c.RemoteIP(), c.ClientIP()))
-		response.Error(c, response.TranslateMsg(c, "ParamsError")+err.Error())
+		response.Error(c, response.TranslateMsg(c, "ParamsError"))
 		return
 	}
 
@@ -81,7 +85,7 @@ func (l *Login) Login(c *gin.Context) {
 		f.DeviceInfo.Type = model.LoginLogClientWeb
 	}
 
-	ut := service.AllService.UserService.Login(u, &model.LoginLog{
+	ut, issueErr := service.AllService.UserService.Login(c.Request.Context(), u, &model.LoginLog{
 		UserId:   u.Id,
 		Client:   f.DeviceInfo.Type,
 		DeviceId: f.Id,
@@ -90,6 +94,10 @@ func (l *Login) Login(c *gin.Context) {
 		Type:     model.LoginLogTypeAccount,
 		Platform: f.DeviceInfo.Os,
 	})
+	if issueErr != nil || ut == nil {
+		writeIssuanceFailure(c, issueErr)
+		return
+	}
 
 	c.JSON(http.StatusOK, apiResp.LoginRes{
 		AccessToken: ut.Token,
@@ -118,7 +126,7 @@ func (l *Login) LoginOptions(c *gin.Context) {
 	}
 	common, err := json.Marshal(oidcItems)
 	if err != nil {
-		response.Error(c, response.TranslateMsg(c, "SystemError")+err.Error())
+		response.Error(c, response.TranslateMsg(c, "SystemError"))
 		return
 	}
 	var res []string
@@ -146,4 +154,19 @@ func (l *Login) Logout(c *gin.Context) {
 	}
 	c.JSON(http.StatusOK, nil)
 
+}
+
+// writeIssuanceFailure preserves the legacy envelope while keeping storage and
+// token generation errors out of public responses.
+func writeIssuanceFailure(c *gin.Context, err error) {
+	status := http.StatusBadRequest
+	message := "LoginFailed"
+	if err == nil || errors.Is(err, auth.ErrUnavailable) {
+		status, message = http.StatusServiceUnavailable, "Authentication unavailable"
+	} else if errors.Is(err, context.DeadlineExceeded) {
+		status, message = http.StatusGatewayTimeout, "Authentication timed out"
+	} else if errors.Is(err, context.Canceled) {
+		status, message = http.StatusRequestTimeout, "Authentication canceled"
+	}
+	c.JSON(status, response.ErrorResponse{Error: message})
 }

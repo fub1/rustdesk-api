@@ -1,7 +1,11 @@
 package admin
 
 import (
+	"context"
+	"errors"
+
 	"fmt"
+	"net/http"
 
 	"github.com/gin-gonic/gin"
 	"github.com/lejianwen/rustdesk-api/v2/global"
@@ -10,6 +14,7 @@ import (
 	apiReq "github.com/lejianwen/rustdesk-api/v2/http/request/api"
 	"github.com/lejianwen/rustdesk-api/v2/http/response"
 	adResp "github.com/lejianwen/rustdesk-api/v2/http/response/admin"
+	"github.com/lejianwen/rustdesk-api/v2/internal/auth"
 	"github.com/lejianwen/rustdesk-api/v2/model"
 	"github.com/lejianwen/rustdesk-api/v2/service"
 )
@@ -44,7 +49,7 @@ func (ct *Login) Login(c *gin.Context) {
 	if err != nil {
 		loginLimiter.RecordFailedAttempt(clientIp)
 		global.Logger.Warn(fmt.Sprintf("Login Fail: %s %s %s", "ParamsError", c.RemoteIP(), clientIp))
-		response.Fail(c, 101, response.TranslateMsg(c, "ParamsError")+err.Error())
+		response.Fail(c, 101, response.TranslateMsg(c, "ParamsError"))
 		return
 	}
 
@@ -86,7 +91,7 @@ func (ct *Login) Login(c *gin.Context) {
 		return
 	}
 
-	ut := service.AllService.UserService.Login(u, &model.LoginLog{
+	ut, issueErr := service.AllService.UserService.Login(c.Request.Context(), u, &model.LoginLog{
 		UserId:   u.Id,
 		Client:   model.LoginLogClientWebAdmin,
 		Uuid:     "", //must be empty
@@ -94,6 +99,10 @@ func (ct *Login) Login(c *gin.Context) {
 		Type:     model.LoginLogTypeAccount,
 		Platform: f.Platform,
 	})
+	if issueErr != nil || ut == nil {
+		writeIssuanceFailure(c, issueErr)
+		return
+	}
 
 	// 登录成功，清除登录限制
 	loginLimiter.RemoveAttempts(clientIp)
@@ -113,12 +122,12 @@ func (ct *Login) Captcha(c *gin.Context) {
 	}
 	err, captcha := loginLimiter.RequireCaptcha()
 	if err != nil {
-		response.Fail(c, 101, response.TranslateMsg(c, "CaptchaError")+err.Error())
+		response.Fail(c, 101, response.TranslateMsg(c, "CaptchaError"))
 		return
 	}
 	err, b64 := loginLimiter.DrawCaptcha(captcha.Content)
 	if err != nil {
-		response.Fail(c, 101, response.TranslateMsg(c, "CaptchaError")+err.Error())
+		response.Fail(c, 101, response.TranslateMsg(c, "CaptchaError"))
 		return
 	}
 	response.Success(c, gin.H{
@@ -187,13 +196,13 @@ func (ct *Login) OidcAuth(c *gin.Context) {
 	f := &apiReq.OidcAuthRequest{}
 	err := c.ShouldBindJSON(f)
 	if err != nil {
-		response.Fail(c, 101, response.TranslateMsg(c, "ParamsError")+err.Error())
+		response.Fail(c, 101, response.TranslateMsg(c, "ParamsError"))
 		return
 	}
 
 	err, state, verifier, nonce, url := service.AllService.OauthService.BeginAuth(f.Op)
 	if err != nil {
-		response.Error(c, response.TranslateMsg(c, err.Error()))
+		response.Error(c, response.TranslateMsg(c, "LoginFailed"))
 		return
 	}
 
@@ -239,4 +248,19 @@ func responseLoginSuccess(c *gin.Context, u *model.User, token string) {
 	lp.Token = token
 	lp.RouteNames = service.AllService.UserService.RouteNames(u)
 	response.Success(c, lp)
+}
+
+// writeIssuanceFailure preserves the legacy envelope while keeping storage and
+// token generation errors out of public responses.
+func writeIssuanceFailure(c *gin.Context, err error) {
+	status := http.StatusBadRequest
+	message := "LoginFailed"
+	if err == nil || errors.Is(err, auth.ErrUnavailable) {
+		status, message = http.StatusServiceUnavailable, "Authentication unavailable"
+	} else if errors.Is(err, context.DeadlineExceeded) {
+		status, message = http.StatusGatewayTimeout, "Authentication timed out"
+	} else if errors.Is(err, context.Canceled) {
+		status, message = http.StatusRequestTimeout, "Authentication canceled"
+	}
+	c.JSON(status, response.Response{Code: 101, Message: message})
 }
