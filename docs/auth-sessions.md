@@ -1,9 +1,11 @@
 # Local session boundary (ARCH 02)
 
-This slice unifies authentication of **already issued local sessions**, current
+The original ARCH 02 slice unified authentication of **already issued local sessions**, current
 user responses, logout and direct administrator session revocation. It reuses
 the existing users/user_tokens/peers schema. It does not introduce identity,
-purpose or token-hash fields, and does not certify the legacy login flows.
+purpose or token-hash fields. ARCH 04/05 now add committed issuance and a separate
+issuer/sub relation; the current login behavior and migration rules are described
+in [oidc.md](oidc.md).
 
 ## Rules and compatibility
 
@@ -31,8 +33,10 @@ do not produce identical credentials. Previously duplicated token rows are
 rejected; their users must log in again. Enabling/changing a JWT key or deploying
 the newly consistent signed-expiry checks can invalidate previously accepted
 admin sessions; plan a fresh login during rollout. Existing valid, unambiguous
-sessions need no table migration. A new opaque issuer, token hashing, absolute
-lifetimes and purpose isolation remain separate session-policy/schema work.
+sessions need no table migration. ARCH 04 new opaque sessions now use 32 random
+bytes. Token hashing, absolute local session lifetimes and stored session-purpose
+isolation remain separate policy/schema work; OIDC attempts already enforce their
+own absolute TTL and flow/audience isolation.
 
 Client authentication failure retains HTTP 401 with an error object. Admin
 missing/invalid sessions retain HTTP 200 with body code 403; disabled users
@@ -90,19 +94,27 @@ after sending means the outcome may be unknown, and the response reports failure
 without claiming the remote command was rolled back. Full legacy request/OIDC
 timeouts, login-flow TTLs and graceful shutdown remain their separate later work.
 
-## Boundaries for the next slices
+## Login changes and remaining boundaries (ARCH 04/05)
 
-Password/LDAP login, registration, legacy OIDC challenge/callback/poll and their
-final session issuance still use legacy composition. Their persistence errors,
-identity binding, concurrency and credential generation need ARCH 04/05; the
-current change must not be described as a secure or instance-isolated full
-login flow. Password changes/device removal still revoke via legacy business
-transactions against the same deployment DB. Session listing and other business
-controllers remain legacy too. No full application multi-instance claim is made.
+Password/LDAP credential verification and local registration remain legacy
+composition, but their final session issuance now uses the instance issuer:
+session, actual login-log reference and existing device binding commit together.
+Current enabled status and authenticated password hash are rechecked. Password
+change and session revocation, and user deletion/identity/session/peer cleanup,
+are transactional. Other device/business mutation paths and session listing
+remain legacy. Local registration may create an account before its subsequent
+automatic login fails; the response never claims an uncommitted session exists.
+Full application instance isolation is not claimed.
 
-The standard OIDC RP will adapt to our provider: public client, no client secret,
-Code/S256, required protocol validation and issuer+sub identity mapping. It will
-reuse local session/user admission rules. Email is optional, and neither UI
+The standard OIDC RP now adapts to our provider: public client, no client secret,
+Code/S256, required protocol validation and issuer+sub identity mapping. It
+reuses local session/user admission rules. Email is optional, and neither UI
 route hints nor provider profile claims grant administrator rights. Our IdP is
-not changed to satisfy assumptions in the fork. No new OIDC network adapter or
-identity-link schema is introduced until its flow and business rules are implemented.
+not changed to satisfy assumptions in the fork. Database version 275 adds the
+explicitly approved identity relation. Old op/email links are not migrated;
+OIDC users require explicit binding or configured ordinary-account registration.
+The old OIDC/cache/confirmation controllers are no longer registered, including
+their aliases. New native/admin polling retains the expected response shapes,
+checks device and route audience, and revalidates every cached local session.
+Production client registration, deployed IdP SHA/issuer and actual Flutter/UI
+acceptance are still outstanding; see [oidc.md](oidc.md).

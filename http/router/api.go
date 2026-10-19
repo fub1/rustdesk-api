@@ -39,16 +39,16 @@ func ApiInit(g *gin.Engine, sessions *httpapi.Handler) {
 	{
 		o := &api.Oauth{}
 		// [method:POST] [uri:/api/oidc/auth]
-		frg.POST("/oidc/auth", o.OidcAuth)
+		frg.POST("/oidc/auth", sessions.ClientOIDCBegin)
 		// [method:GET] [uri:/api/oidc/auth-query?code=abc&id=xxxxx&uuid=xxxxx]
-		frg.GET("/oidc/auth-query", o.OidcAuthQuery)
+		frg.GET("/oidc/auth-query", sessions.ClientOIDCPoll)
 		//api/oauth/callback
-		frg.GET("/oauth/callback", o.OauthCallback)
-		frg.GET("/oauth/login", o.OauthCallback)
+		frg.GET("/oauth/callback", sessions.OIDCCallback)
+		frg.GET("/oauth/login", sessions.OIDCCallback)
 		frg.GET("/oauth/msg", o.Message)
 
-		frg.GET("/oidc/callback", o.OauthCallback)
-		frg.GET("/oidc/login", o.OauthCallback)
+		frg.GET("/oidc/callback", sessions.OIDCCallback)
+		frg.GET("/oidc/login", sessions.OIDCCallback)
 		frg.GET("/oidc/msg", o.Message)
 	}
 	{

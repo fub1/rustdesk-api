@@ -179,3 +179,29 @@ func TestIssuerAndSubjectAreCaseSensitive(t *testing.T) {
 		t.Fatal("subject case folded")
 	}
 }
+
+func TestUnbindDoesNotCountAnUnconfiguredIdentityAsRecovery(t *testing.T) {
+	db, s, c := fixture(t, true)
+	actor, err := s.Login(context.Background(), identity(c), c, auth.IssueRequest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	stale := model.OIDCIdentity{Issuer: "https://old-provider.test", Subject: "other-sub", UserID: actor.User.ID}
+	if err := db.Create(&stale).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Unbind(context.Background(), c, actor); !errors.Is(err, auth.ErrForbidden) {
+		t.Fatal("unconfigured issuer counted as a usable login method")
+	}
+	enabled := true
+	other := model.Oauth{Op: "other", OauthType: "oidc", Issuer: stale.Issuer, ClientId: "other", PkceEnable: &enabled, PkceMethod: "S256"}
+	if err := db.Create(&other).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Unbind(context.Background(), c, actor); err != nil {
+		t.Fatal(err)
+	}
+	if count(t, db, &model.OIDCIdentity{}) != 1 {
+		t.Fatal("wrong identity removed")
+	}
+}

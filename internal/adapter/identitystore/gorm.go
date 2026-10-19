@@ -85,7 +85,7 @@ func checkProvider(tx *gorm.DB, expected auth.ProviderConfig) (auth.ProviderConf
 		return auth.ProviderConfig{}, err
 	}
 	actual, err := provider(row)
-	if err != nil || actual.ID != expected.ID || actual.Op != expected.Op || actual.Issuer != expected.Issuer || actual.ClientID != expected.ClientID {
+	if err != nil || actual.ID != expected.ID || actual.Op != expected.Op || actual.Issuer != expected.Issuer || actual.ClientID != expected.ClientID || actual.AutoRegister != expected.AutoRegister {
 		return auth.ProviderConfig{}, auth.ErrInvalidInput
 	}
 	return actual, nil
@@ -219,11 +219,26 @@ func (s *Store) Unbind(ctx context.Context, config auth.ProviderConfig, actor au
 			return err
 		}
 		if user.Password == "" {
-			var others int64
-			if err := tx.Model(&model.OIDCIdentity{}).Where("user_id = ? AND issuer <> ?", actor.User.ID, config.Issuer).Count(&others).Error; err != nil {
+			var providers []model.Oauth
+			if err := tx.Where("oauth_type = ? AND issuer <> ?", model.OauthTypeOidc, config.Issuer).Find(&providers).Error; err != nil {
 				return err
 			}
-			if others == 0 {
+			usable := false
+			for _, candidate := range providers {
+				other, err := provider(candidate)
+				if err != nil {
+					continue
+				}
+				var links int64
+				if err := tx.Model(&model.OIDCIdentity{}).Where("user_id = ? AND issuer = ?", actor.User.ID, other.Issuer).Count(&links).Error; err != nil {
+					return err
+				}
+				if links > 0 {
+					usable = true
+					break
+				}
+			}
+			if !usable {
 				return auth.ErrForbidden
 			}
 		}
@@ -241,4 +256,30 @@ func classify(err error) error {
 		}
 	}
 	return auth.ErrUnavailable
+}
+
+func (s *Store) Links(ctx context.Context, actor auth.Principal) ([]auth.ProviderLink, error) {
+	var result []auth.ProviderLink
+	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := checkActor(tx, actor, s.now().UTC()); err != nil {
+			return err
+		}
+		var rows []model.Oauth
+		if err := tx.Where("oauth_type = ?", model.OauthTypeOidc).Order("id").Find(&rows).Error; err != nil {
+			return err
+		}
+		for _, row := range rows {
+			config, err := provider(row)
+			if err != nil {
+				continue
+			}
+			var n int64
+			if err := tx.Model(&model.OIDCIdentity{}).Where("user_id = ? AND issuer = ?", actor.User.ID, config.Issuer).Count(&n).Error; err != nil {
+				return err
+			}
+			result = append(result, auth.ProviderLink{Op: config.Op, Linked: n > 0})
+		}
+		return nil
+	})
+	return result, classify(err)
 }

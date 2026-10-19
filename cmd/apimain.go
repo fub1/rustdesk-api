@@ -63,7 +63,16 @@ var rootCmd = &cobra.Command{
 			return err
 		}
 		authLogger := global.Logger
+		oidcClient, err := app.OIDCHTTPClient(global.Config.Proxy.Enable, global.Config.Proxy.Host)
+		if err != nil {
+			return err
+		}
+		oidcLogin, err := app.NewOIDC(global.DB, global.Config.App.TokenExpire, global.Jwt.Key, sessions, global.Config.Rustdesk.ApiServer, global.Config.App.WebSso, oidcClient)
+		if err != nil {
+			return err
+		}
 		authHTTP, err := httpapi.New(sessions, httpapi.Options{
+			OIDC:      oidcLogin,
 			Translate: http.LegacyTranslator(), Timeout: global.Config.App.AuthTimeout,
 			Observe: func(event httpapi.FailureEvent) {
 				authLogger.WithFields(map[string]interface{}{"component": "auth", "operation": event.Operation, "result": event.Code, "route": event.Route}).Debug("Authentication request failed")

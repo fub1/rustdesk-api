@@ -43,7 +43,7 @@ requests; tests save/restore that state and are not parallelized in this package
 | `router.WebInit` | `/`, `/_admin/*`, optional webclient assets/config | Legacy |
 | `router.Init` | `/api/admin/*`, optional admin Swagger | Legacy registration, injected session/role checks |
 | `router.ApiInit` | RustDesk `/api/*`, `/upload/*`, optional client Swagger | Legacy registration, injected session checks |
-| `internal/httpapi` | Client/admin current-user, logout, admin token delete/batchDelete | Instance-owned sessions |
+| `internal/httpapi` | Client/admin current-user, logout, token delete/batchDelete, OIDC begin/callback/poll/bind/info/confirm/unbind/myOauth | Instance-owned sessions and login attempts |
 
 Registration stays `WebInit → Init → ApiInit`, including the existing group
 middleware order, with admin logout now explicitly registered after session
@@ -161,15 +161,45 @@ User, identity, token, login log and peer changes share the login transaction.
 Provider identity/client changes invalidate a pending snapshot. The network
 protocol and browser challenge routing are the next slice.
 
+## ARCH 05: atomic browser attempts and public OIDC
+
+Composition adds `app.NewOIDC → identitystore / oidcprovider / loginattempt →
+oidclogin.Service → httpapi`. Discovery is lazy and does not run at bootstrap.
+The core coordinates explicit stores/protocols and does not import Gin, GORM or
+legacy globals. Callback claim, authorization and issuance are distinct atomic
+states, with independent polling/state/nonce/verifier credentials, bounded
+capacity and an absolute TTL. A lost poll response retrieves the same committed
+session; every retrieval still checks the authoritative local session/user.
+
+All old federated callback/login aliases, manual confirmation, binding, cache
+info and myOauth registrations now delegate to these instance-owned handlers.
+There is no fallback into the old cache controllers. Password/LDAP credential
+verification and business CRUD remain legacy; their new issuance bridge is
+described above. The webSSO flow is retained with a distinct flow purpose and
+live local approval, including source-session verification in the commit.
+
+The network adapter enforces the existing IdP's PUBLIC/none, Code/S256,
+openid/profile contract with mandatory verified ID Tokens and matching UserInfo
+subjects. It uses bounded request-context network calls, no redirects and no
+refresh workflow. Local admission links issuer/sub without email matching or
+external administrator claims. Attempt/source-session deadlines also bound
+binding and issuance transactions. Details, configuration, rollout restrictions
+and verified test scope are in [oidc.md](oidc.md).
+
+The first state backend is bounded process memory, explicitly single-instance;
+production IdP registration/deployment and real Flutter/browser acceptance are
+still required. Real TLS protocol + real SQLite + production router tests do
+not establish those external deployment facts or multi-instance support.
+
 ## Next slices
 
-ARCH 05 covers atomic OIDC login attempts and protocol routing; the startup
-migration failure portion is already documented in
+The startup migration failure portion is documented in
 [migration-recovery.md](migration-recovery.md). ARCH 06 completes lifecycle
 management, and ARCH 07 handles the first client compatibility fixes.
 
 Our API will act as a standards-compliant OIDC relying party adapting to our
 OIDC provider's requirements (including public client, no secret and S256).
 The provider must not be changed to accommodate assumptions in this fork.
-ARCH 04 establishes persistence boundaries; complete OIDC login is not yet
-claimed by that commit.
+ARCH 04/05 now establish transactional login and the standard OIDC implementation;
+first-phase production acceptance remains subject to the deployment and client
+checks above.

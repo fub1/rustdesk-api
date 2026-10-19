@@ -9,8 +9,11 @@ import (
 // IssueRequest is a verified login decision, not a substitute for authenticating
 // a password or an external identity. Persistence rechecks the current user.
 type IssueRequest struct {
-	UserID                                             uint
-	ExpectedPassword                                   *string
+	UserID           uint
+	ExpectedPassword *string
+	// SourceSession is required when a live local browser session authorizes
+	// issuance to another device (web SSO). Recheck it in the same transaction.
+	SourceSession                                      *Session
 	DeviceID, DeviceUUID, Client, Platform, IP, Method string
 }
 

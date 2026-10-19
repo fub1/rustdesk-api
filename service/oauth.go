@@ -474,13 +474,26 @@ func (os *OauthService) Update(oauthInfo *model.Oauth) error {
 	if err != nil {
 		return err
 	}
-	return DB.Model(oauthInfo).Updates(oauthInfo).Error
+	return DB.Model(oauthInfo).Updates(map[string]interface{}{
+		"op": oauthInfo.Op, "oauth_type": oauthInfo.OauthType, "issuer": oauthInfo.Issuer,
+		"client_id": oauthInfo.ClientId, "client_secret": oauthInfo.ClientSecret,
+		"auto_register": oauthInfo.AutoRegister, "scopes": oauthInfo.Scopes,
+		"pkce_enable": oauthInfo.PkceEnable, "pkce_method": oauthInfo.PkceMethod,
+	}).Error
 }
 
 // GetOauthProviders 获取所有的provider
 func (os *OauthService) GetOauthProviders() []string {
+	var rows []model.Oauth
 	var res []string
-	DB.Model(&model.Oauth{}).Pluck("op", &res)
+	if DB.Where("oauth_type = ?", model.OauthTypeOidc).Find(&rows).Error != nil {
+		return res
+	}
+	for _, row := range rows {
+		if row.FormatOauthInfo() == nil {
+			res = append(res, row.Op)
+		}
+	}
 	return res
 }
 

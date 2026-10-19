@@ -21,7 +21,7 @@ func Init(g *gin.Engine, sessions *httpapi.Handler) {
 	}
 
 	adg := g.Group("/api/admin")
-	LoginBind(adg)
+	LoginBind(adg, sessions)
 	adg.POST("/user/register", (&admin.User{}).Register)
 
 	ConfigBind(adg, sessions)
@@ -70,13 +70,13 @@ func RustdeskCmdBind(adg *gin.RouterGroup, sessions *httpapi.Handler) {
 	rg.POST("/cmdDelete", cont.CmdDelete)
 	rg.POST("/cmdCreate", cont.CmdCreate)
 }
-func LoginBind(rg *gin.RouterGroup) {
+func LoginBind(rg *gin.RouterGroup, sessions *httpapi.Handler) {
 	cont := &admin.Login{}
 	rg.POST("/login", cont.Login)
 	rg.GET("/captcha", cont.Captcha)
 	rg.GET("/login-options", cont.LoginOptions)
-	rg.POST("/oidc/auth", cont.OidcAuth)
-	rg.GET("/oidc/auth-query", cont.OidcAuthQuery)
+	rg.POST("/oidc/auth", sessions.AdminOIDCBegin)
+	rg.GET("/oidc/auth-query", sessions.AdminOIDCPoll)
 }
 
 func UserBind(rg *gin.RouterGroup, sessions *httpapi.Handler) {
@@ -85,7 +85,7 @@ func UserBind(rg *gin.RouterGroup, sessions *httpapi.Handler) {
 		cont := &admin.User{}
 		aR.GET("/current", sessions.AdminCurrent)
 		aR.POST("/changeCurPwd", cont.ChangeCurPwd)
-		aR.POST("/myOauth", cont.MyOauth)
+		aR.POST("/myOauth", sessions.OIDCMyOauth)
 		//aR.GET("/myPeer", cont.MyPeer)
 		aR.POST("/groupUsers", cont.GroupUsers)
 	}
@@ -172,12 +172,11 @@ func PeerBind(rg *gin.RouterGroup, sessions *httpapi.Handler) {
 func OauthBind(rg *gin.RouterGroup, sessions *httpapi.Handler) {
 	aR := rg.Group("/oauth")
 	{
-		cont := &admin.Oauth{}
-		aR.POST("/confirm", cont.Confirm)
-		aR.POST("/bind", cont.ToBind)
-		aR.POST("/bindConfirm", cont.BindConfirm)
-		aR.POST("/unbind", cont.Unbind)
-		aR.GET("/info", cont.Info)
+		aR.POST("/confirm", sessions.OIDCConfirm)
+		aR.POST("/bind", sessions.OIDCBind)
+		aR.POST("/bindConfirm", sessions.OIDCBindConfirm)
+		aR.POST("/unbind", sessions.OIDCUnbind)
+		aR.GET("/info", sessions.OIDCInfo)
 	}
 	arp := aR.Use(sessions.RequireAdmin())
 	{

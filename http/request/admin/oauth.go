@@ -21,7 +21,7 @@ type OauthForm struct {
 	Issuer       string `json:"issuer" validate:"omitempty,url"`
 	Scopes       string `json:"scopes" validate:"omitempty"`
 	ClientId     string `json:"client_id" validate:"required"`
-	ClientSecret string `json:"client_secret" validate:"required"`
+	ClientSecret string `json:"client_secret" validate:"omitempty"`
 	AutoRegister *bool  `json:"auto_register"`
 	PkceEnable   *bool  `json:"pkce_enable"`
 	PkceMethod   string `json:"pkce_method"`

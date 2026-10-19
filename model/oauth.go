@@ -2,11 +2,12 @@ package model
 
 import (
 	"errors"
+	"net/url"
 	"strconv"
 	"strings"
 )
 
-const OIDC_DEFAULT_SCOPES = "openid,profile,email"
+const OIDC_DEFAULT_SCOPES = "openid,profile"
 
 const (
 	// make sure the value shouldbe lowercase
@@ -56,6 +57,28 @@ func (oa *Oauth) FormatOauthInfo() error {
 	err := ValidateOauthType(oa.OauthType)
 	if err != nil {
 		return err
+	}
+	if oauthType == OauthTypeOidc {
+		u, err := url.Parse(oa.Issuer)
+		if err != nil || u.Scheme != "https" || u.Hostname() == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || len(oa.Issuer) > 512 || strings.TrimSpace(oa.ClientId) == "" || oa.ClientSecret != "" {
+			return errors.New("OIDC requires an HTTPS issuer and a public client without secret")
+		}
+		for _, scope := range strings.FieldsFunc(oa.Scopes, func(r rune) bool { return r == ',' || r == ' ' || r == '\t' || r == '\n' || r == '\r' }) {
+			if scope != "openid" && scope != "profile" {
+				return errors.New("OIDC supports only openid profile")
+			}
+		}
+		if oa.PkceEnable != nil && !*oa.PkceEnable || oa.PkceMethod != "" && oa.PkceMethod != PKCEMethodS256 {
+			return errors.New("OIDC requires S256 PKCE")
+		}
+		oa.Scopes = OIDC_DEFAULT_SCOPES
+		enabled := true
+		oa.PkceEnable = &enabled
+		oa.PkceMethod = PKCEMethodS256
+		if oa.AutoRegister == nil {
+			closed := false
+			oa.AutoRegister = &closed
+		}
 	}
 	switch oauthType {
 	case OauthTypeGithub:

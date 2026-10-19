@@ -111,3 +111,39 @@ func TestIssueRechecksUserAndPassword(t *testing.T) {
 		})
 	}
 }
+
+func TestWebIssuanceRechecksApprovingSessionInTransaction(t *testing.T) {
+	for _, mode := range []string{"valid", "revoked", "expired-signed", "wrong-user"} {
+		t.Run(mode, func(t *testing.T) {
+			db, u := issuanceDB(t)
+			store, _ := authstore.New(db)
+			issuer, _ := auth.NewIssuer(store, sessiontoken.NewIssuer(nil), time.Hour, func() time.Time { return now })
+			source := model.UserToken{UserId: u.Id, Token: "browser-proof", ExpiredAt: now.Add(time.Hour).Unix()}
+			create(t, db, &source)
+			proof := auth.Session{ID: source.Id, UserID: u.Id, Token: source.Token, ExpiresAt: now.Add(time.Hour)}
+			switch mode {
+			case "revoked":
+				db.Delete(&source)
+			case "expired-signed":
+				proof.ExpiresAt = now.Add(-time.Second)
+			case "wrong-user":
+				proof.UserID++
+			}
+			p, err := issuer.Issue(context.Background(), auth.IssueRequest{UserID: u.Id, SourceSession: &proof})
+			if mode == "valid" {
+				if err != nil || p.Session.Token == "" {
+					t.Fatal("valid approving proof rejected")
+				}
+			} else {
+				if !errors.Is(err, auth.ErrUnauthenticated) || p.Session.Token != "" {
+					t.Fatal("invalid/revoked approving proof minted a session")
+				}
+				var logs int64
+				db.Model(&model.LoginLog{}).Count(&logs)
+				if logs != 0 {
+					t.Fatal("rejected proof persisted login")
+				}
+			}
+		})
+	}
+}

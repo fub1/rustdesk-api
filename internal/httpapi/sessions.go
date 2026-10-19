@@ -11,6 +11,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/lejianwen/rustdesk-api/v2/internal/auth"
+	"github.com/lejianwen/rustdesk-api/v2/internal/oidclogin"
 	"github.com/lejianwen/rustdesk-api/v2/model"
 	"github.com/lejianwen/rustdesk-api/v2/model/custom_types"
 )
@@ -25,12 +26,14 @@ type Options struct {
 	Translate Translate
 	Timeout   time.Duration
 	Observe   func(FailureEvent)
+	OIDC      *oidclogin.Service
 }
 
 const DefaultTimeout = 5 * time.Second
 
 type Handler struct {
 	sessions                *auth.Service
+	oidc                    *oidclogin.Service
 	translate               Translate
 	userRoutes, adminRoutes []string
 	timeout                 time.Duration
@@ -47,7 +50,7 @@ func New(sessions *auth.Service, options Options) (*Handler, error) {
 	if options.Timeout == 0 {
 		options.Timeout = DefaultTimeout
 	}
-	return &Handler{sessions: sessions, translate: options.Translate, timeout: options.Timeout, observe: options.Observe, userRoutes: append([]string(nil), model.UserRouteNames...), adminRoutes: append([]string(nil), model.AdminRouteNames...)}, nil
+	return &Handler{sessions: sessions, oidc: options.OIDC, translate: options.Translate, timeout: options.Timeout, observe: options.Observe, userRoutes: append([]string(nil), model.UserRouteNames...), adminRoutes: append([]string(nil), model.AdminRouteNames...)}, nil
 }
 
 func Current(c *gin.Context) (auth.Principal, bool) {

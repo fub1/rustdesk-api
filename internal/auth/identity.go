@@ -11,3 +11,8 @@ type ProviderConfig struct {
 	Op, Issuer, ClientID string
 	AutoRegister         bool
 }
+
+type ProviderLink struct {
+	Op     string
+	Linked bool
+}

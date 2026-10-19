@@ -50,6 +50,18 @@ func IssueInTransaction(tx *gorm.DB, input auth.IssuedSession) (auth.Principal, 
 	if r.ExpectedPassword != nil && user.Password != *r.ExpectedPassword {
 		return auth.Principal{}, auth.ErrUnauthenticated
 	}
+	if source := r.SourceSession; source != nil {
+		if source.UserID != user.Id || source.ID == 0 || !source.ExpiresAt.After(input.Now) {
+			return auth.Principal{}, auth.ErrUnauthenticated
+		}
+		stored, err := uniqueSession(tx, source.Token, true)
+		if err != nil {
+			return auth.Principal{}, err
+		}
+		if stored.Id != source.ID || stored.UserId != user.Id || stored.ExpiredAt <= input.Now.Unix() {
+			return auth.Principal{}, auth.ErrUnauthenticated
+		}
+	}
 	var count int64
 	if err := tx.Model(&model.UserToken{}).Where("token = ?", input.Token).Count(&count).Error; err != nil {
 		return auth.Principal{}, err
