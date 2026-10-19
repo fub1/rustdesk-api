@@ -1,5 +1,7 @@
 # RustDesk 1.5.0 HTTP API 契约基线
 
+COMP12-A 校正并修复 personal 关闭分支：旧200 null不能被固定客户端的非nullable Map解析；现返回404进入明确legacy分支。settings始终保持200对象；空body/{}、身份隔离及配置分支的HTTP回归见 `http/addressbook_initialization_test.go`。这是源码契约与HTTP证据，尚未真实Flutter验收。
+
 后续 COMP11 实现：native 登录、OIDC poll、当前用户及用户列表显式返回本地 display_name/avatar，含空字符串；可见性、分页与管理端封套保持原规则。测试见 `http/user_profile_compat_test.go`，真实客户端头像加载/昵称与缓存刷新尚未验收。
 
 后续 COMP10 实现：sysinfo 用户名省略/空串均清旧值，其他基础字段缺失保留/空串写入，显式无效值拒绝；已执行的旧预设副写纳入同事务。原文成功 ACK 只在提交后发送；预设归属/准入及未支持字段仍归 PRE01/02。证据与真实客户端未验收边界见[当前兼容矩阵](client-compatibility.md)。以下固定 API 静态基线描述继续保留为修复前对照。
@@ -59,7 +61,7 @@
 | [11](#contract-11) | POST `/api/devices/deploy` | 缺失 | missing |
 | [12](#contract-12) | POST `/api/devices/cli` | 缺失 | missing |
 | [13](#contract-13) | POST `/api/ab/settings` | 存在 | implemented |
-| [14](#contract-14) | POST `/api/ab/personal` | 存在 | conditional |
+| [14](#contract-14) | POST `/api/ab/personal` | 存在 | route_only（旧盘点校正） |
 | [15](#contract-15) | POST `/api/ab/shared/profiles` | 存在 | implemented |
 | [16](#contract-16) | GET `/api/ab` | 存在 | implemented |
 | [17](#contract-17) | POST `/api/ab` | 存在 | route_only |
@@ -375,7 +377,7 @@ API入口/实现：[http/router/api.go:107](../http/router/api.go#L107)、[http/
 
 ### 14 · POST `/api/ab/personal`
 
-API基线：`conditional`；Personal=1返回guid/name/rule3；否则null触发客户端legacy模式，属于明确配置兼容分支
+API基线：`route_only`（原conditional判定已校正）；Personal=1返回guid/name/rule3；否则旧实现返回200 null。原盘点误判其可触发legacy：固定客户端实际上解析失败；COMP12-A纠正为404兼容分支。
 
 实现/触发条件：Rustdesk.Personal controls personal-profile vs legacy
 

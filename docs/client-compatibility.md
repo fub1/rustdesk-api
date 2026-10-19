@@ -1,5 +1,9 @@
 # 当前客户端 HTTP 契约与回归矩阵
 
+COMP12-A 补齐 settings/personal 初始化的指名回归，并修正 personal 关闭分支：Personal=1 仍返回认证用户的顶层 guid/name/rule；任何非1配置返回404，让固定1.5.0继续 legacy 初始化。旧200 null会在Dart非nullable Map解析处失败，不能触发该降级。settings在各配置仍返回200对象，max_peer_one_ab为整数0；两个端点均继续受客户端会话校验，空 body 与 {} 可用，body/query不决定身份。
+
+`http/addressbook_initialization_test.go` 验证 settings 字段类型、个人身份/伪造参数隔离和关闭配置的明确404分支；这是生产HTTP/SQLite及固定源码契约证据，未实际运行Dart或Flutter界面。逐端点无效会话矩阵在下一切片补齐，无新模型、路由或数据库写路径。
+
 COMP11 对账号登录、OIDC auth-query、POST currentUser、GET user/info 和 GET users 显式投影本地 `Nickname → display_name`、`Avatar → avatar`。空值仍返回字符串，便于客户端刷新清空缓存；保留 name/email/note/is_admin/status/info 的已有形状，不用邮箱或 IdP claims 覆盖本地资料。native 当前用户复用既有响应 DTO；领域列表 DTO 保持独立，不反向依赖 HTTP 层。没有新增资料模型或持久化 claims。
 
 `http/user_profile_compat_test.go` 覆盖非空/空串、账号登录、两个 current 入口、真实 TLS 测试 IdP 的 native/admin poll 及本地资料变更、用户列表共享/私有范围、状态过滤与分页；严格响应键名单确保内部备注、凭据、归属等字段不扩散。管理端原 nickname/avatar/token/route_names 封套保持既有形状。这里是生产 HTTP/SQLite 及本地 TLS fixture，未运行真实 Flutter 的昵称展示、头像加载与资料清空刷新验收。
@@ -40,7 +44,7 @@ COMP08 切片已通过 Go1.23.10/CGO1 的全仓 race/vet/build、生产 router+S
 | 08 | sysinfo | 必须原文 `SYSINFO_UPDATED`；新增/更新回读；上报不能改管理员绑定与共享授权 | COMP10 基础快照/空值与事务已补 HTTP/实库回归；预设业务和真实客户端验收仍待完成 |
 | 09 | sysinfo_ver | 原文版本文本；直接 HTTP smoke 可测，但不可当作固定客户端正常可达闭环 | 条件不可达 |
 | 10–12 | switch-grant / devices/deploy / devices/cli | 保留明确不支持状态；后续各自验证签名、操作 token、result 枚举或空文本 | 缺失，后续阶段 |
-| 13–14 | settings/personal | 空 body 可用；settings 对象、personal guid；不存在接口时 404 降级 | 路由保留；本轮没有指名这两个入口的新增 HTTP 业务测试 |
+| 13–14 | settings/personal | 空 body 可用；settings 对象、personal guid；不存在接口时 404 降级 | COMP12-A 已补初始化具名回归；personal关闭改404降级，真实客户端与下一切片会话矩阵另列 |
 | 15 | shared profiles | total/data、current/pageSize；授权规则取最大且去重；拒绝伪造或越权 guid | 生产路由+SQLite 已覆盖 1021 个 profile 和权限过滤 |
 | 16–17 | legacy 整本地址簿 GET/POST | data 是 JSON 字符串，tag_colors 再编码；个人簿整本更新与 tag 同事务；保留扩展字段和共享/他人数据 | 生产路由+SQLite 已覆盖 1007 peers/1003 tags 读取及写失败回滚 |
 | 18–19 | peers / tags | 空 body；peers current/pageSize/ab；tags 顶层数组；权限过滤；超过 1000 条不截断 | COMP02 生产路由+SQLite 已覆盖分页、旧 page 别名、非法参数及 wire 类型 |
@@ -65,7 +69,7 @@ COMP08 切片已通过 Go1.23.10/CGO1 的全仓 race/vet/build、生产 router+S
 - `TestClientCompatLegacyReplaceIsAtomicAndPersonalOnly`：data 二次 JSON 编码、peer/tag 同事务，失败无部分提交；不改共享/他人记录；保留旧客户端省略的扩展字段，显式空 note 清除，个人簿空快照只清个人数据。
 - `TestClientCompatQueryFailuresAndCanceledRequestsFailClosed`、`TestClientCompatAuthorizationDependencyFailureDoesNotExpandScope`：读取、授权依赖和请求取消不能变成空成功或全量可见。
 
-COMP02/03 当时未覆盖的 peer DELETE 与 tag 四个变更入口，已由后续 COMP08 的 TestClientCompatSharedWritesUseMaximumScopedRule、TestClientCompatBatchDeletesRollbackMissingAndWriteFailures 等生产 HTTP/SQLite 与两引擎测试补齐；COMP07 另补标签引用事务。settings/personal 初始化仍缺指名业务回归；逐入口会话负向及真实客户端细项继续归 COMP12，不把既有自动测试重新列为未实现。
+COMP02/03 当时未覆盖的 peer DELETE 与 tag 四个变更入口，已由后续 COMP08 的 TestClientCompatSharedWritesUseMaximumScopedRule、TestClientCompatBatchDeletesRollbackMissingAndWriteFailures 等生产 HTTP/SQLite 与两引擎测试补齐；COMP07 另补标签引用事务。settings/personal 初始化已由COMP12-A补齐指名回归；逐入口会话负向及真实客户端细项继续归COMP12，不把既有自动测试重新列为未实现。
 
 ## COMP04 审计投递与关联
 

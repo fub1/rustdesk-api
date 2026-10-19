@@ -261,7 +261,9 @@ func (a *Ab) Personal(c *gin.Context) {
 			"rule": 3,
 		})
 	} else {
-		c.JSON(http.StatusOK, nil)
+		// RustDesk 1.5.0 continues legacy initialization on 404; a 200 null
+		// response fails its non-null JSON object decoder and stops the pull.
+		c.Status(http.StatusNotFound)
 	}
 
 }

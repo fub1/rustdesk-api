@@ -774,9 +774,11 @@
       "request_shape": "empty",
       "response_shape": "object_max_peer_one_ab_or_404",
       "route_status": "route_present",
-      "coverage": "not_yet_business_tested",
-      "existing_partial_tests": [],
-      "fixture_status": "route_retained_no_new_named_targeted_http_business_test_in_this_slice",
+      "coverage": "covered_partial",
+      "existing_partial_tests": [
+        "http/addressbook_initialization_test.go:TestClientAddressBookSettingsAcceptsEmptyBodyAndReturnsUnlimitedInteger"
+      ],
+      "fixture_status": "local_production_http_sqlite_initialization_tested_not_real_client",
       "client_variants": [
         {
           "id": "ab_settings",
@@ -808,7 +810,12 @@
       },
       "contract_document": "docs/client-api-1.5.0.md#contract-13",
       "route_registered_at_inventory_revision": true,
-      "field_freeze_status": "source_summary_not_complete_JSON_Schema"
+      "field_freeze_status": "source_summary_not_complete_JSON_Schema",
+      "implementation_update": {
+        "task": "COMP12-A",
+        "semantics": "settings remains200 max_peer_one_ab integer0; personal enabled uses authenticated identity, disabled uses client-explicit404 legacy fallback; client authentication retained",
+        "real_client": "fixed Dart branch reviewed; GUI not run"
+      }
     },
     {
       "id": "14",
@@ -818,9 +825,12 @@
       "request_shape": "empty",
       "response_shape": "object_guid_or_404",
       "route_status": "route_present",
-      "coverage": "not_yet_business_tested",
-      "existing_partial_tests": [],
-      "fixture_status": "route_retained_no_new_named_targeted_http_business_test_in_this_slice",
+      "coverage": "covered_partial",
+      "existing_partial_tests": [
+        "http/addressbook_initialization_test.go:TestClientPersonalProfileEnabledUsesAuthenticatedIdentity",
+        "http/addressbook_initialization_test.go:TestClientPersonalProfileDisabledUsesClientLegacyFallback"
+      ],
+      "fixture_status": "local_production_http_sqlite_initialization_tested_not_real_client",
       "client_variants": [
         {
           "id": "ab_personal",
@@ -841,18 +851,24 @@
       ],
       "implementation_alignment": {
         "api_revision": "b59f7a56cd9e90cf48c760d2aca808a7241582f0",
-        "status": "conditional",
-        "notes": "Personal=1返回guid/name/rule3；否则null触发客户端legacy模式，属于明确配置兼容分支",
+        "status": "route_only",
+        "notes": "Personal=1 returns guid/name/rule3; otherwise baseline returned200 null, which fails the fixed client non-null Map decoder. Earlier claim of null-triggered legacy was incorrect; COMP12-A repairs disabled mode to the explicit404 branch.",
         "condition": "Rustdesk.Personal controls personal-profile vs legacy",
         "sources": [
           "http/router/api.go:105",
           "http/controller/api/ab.go:327"
         ],
-        "verification": "static_not_new_passed_test"
+        "verification": "static_not_new_passed_test",
+        "prior_incorrect_status": "conditional"
       },
       "contract_document": "docs/client-api-1.5.0.md#contract-14",
       "route_registered_at_inventory_revision": true,
-      "field_freeze_status": "source_summary_not_complete_JSON_Schema"
+      "field_freeze_status": "source_summary_not_complete_JSON_Schema",
+      "implementation_update": {
+        "task": "COMP12-A",
+        "semantics": "settings remains200 max_peer_one_ab integer0; personal enabled uses authenticated identity, disabled uses client-explicit404 legacy fallback; client authentication retained",
+        "real_client": "fixed Dart branch reviewed; GUI not run"
+      }
     },
     {
       "id": "15",
@@ -2516,7 +2532,8 @@
       "GUID note only HTTP200/nonempty GUID, no fallback",
       "record false private flag retained/unreachable",
       "personal hash/shared password exclusive",
-      "email_code/legacy exact sources restored"
+      "email_code/legacy exact sources restored",
+      "COMP12-A: personal disabled200 null is not legacy fallback; fixed Dart requires a Map for200, with explicit404 continuation before decoding"
     ],
     "field_status": "Not a frozen complete JSON Schema."
   },
@@ -2643,6 +2660,14 @@
       "local_targeted_checks": "production HTTP/SQLite, local TLS IdP, exact response-key allowlists, nonempty/empty, native/admin envelopes, list scope/status/pagination",
       "ci": "exact commit Actions is authoritative",
       "real_client": "nickname display, avatar loading and cache clearing pending"
+    },
+    {
+      "task": "COMP12-A",
+      "source_inventory_unchanged": true,
+      "business_scope": "settings/personal initialization regression; Personal!=1 changes200 null to404; authenticated route remains registered; no schema or write path changes",
+      "local_targeted_checks": "production HTTP/SQLite empty body/{}, settings integer0, enabled identity and injected scope, disabled -1/0/2/99 source-supported fallback",
+      "ci": "exact commit Actions is authoritative",
+      "real_client": "actual Flutter initialization and configuration change not run"
     }
   ]
 }
