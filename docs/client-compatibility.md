@@ -1,8 +1,8 @@
 # 当前客户端 HTTP 契约与回归矩阵
 
-本矩阵固定 RustDesk 客户端提交 `53996e3c404ea5083df0775057e4149e49102084`，API 盘点基于 `91c5b74786c79b622926b9f4c17d2a3897540a43` 及 ARCH07 工作树。它是回归任务清单，不是 35/35 通过声明。逐项机器可读元数据见 `http/testdata/client-contracts.json`；完整客户端分析见工作区 `research/02-client-api-contract.md`。
+本矩阵固定官方 RustDesk **1.5.0** 客户端 `fada664df7a294d1d1a9ca3e7cd3637069122f17`，API静态盘点固定 `b59f7a56cd9e90cf48c760d2aca808a7241582f0`（b59f7a5）。这是 **36项（含保留实现）的回归清单，不是36/36通过声明**。旧01–35稳定，36补Sciter `POST /api/ab/get`。机器元数据见 [client-contracts.json](../http/testdata/client-contracts.json)；字段、同路径变体、条件与固定源码链接见 [1.5.0 HTTP契约](client-api-1.5.0.md)。
 
-`route_present` 只表示生产路由存在；`covered_partial` 表示有下列指名测试但未覆盖该项全部业务；`deferred_missing` 表示当前没有固定客户端端点；`conditional_unreachable` 表示源码存在但当前调用条件不能同时成立。后续执行者必须补记真实测试名与数据库断言，不能用路由黄金文件代替协议与持久化测试。
+`route_present` 只表示生产路由存在；`covered_partial` 表示有下列指名测试但未覆盖该项全部业务；`deferred_missing` 表示客户端调用存在但API缺对应路由；`conditional_unreachable` 表示源码存在但当前调用条件不能同时成立。后续执行者必须补记真实测试名与数据库断言，不能用路由黄金文件代替协议与持久化测试。
 
 | 编号 | 回归范围 | HTTP 与数据库必须共同验证 | 盘点状态 |
 | --- | --- | --- | --- |
@@ -23,9 +23,10 @@
 | 23–26 | tag add/rename/update/delete | 颜色整数；重命名同步 peer 引用；DELETE 数组 body；越权拒绝 | 路由保留；本轮已测 tag 读取/legacy tag 事务，尚未逐个定向验证这四个变更入口 |
 | 27–29 | accessible groups/users/peers | current/pageSize、真实 total、授权后分页；Peer.info.device_name 映射；授权依赖故障不得扩权 | COMP02 生产路由+SQLite 已覆盖千条级分页、角色/组范围和依赖失败 |
 | 30–31 | conn/file audit | 事务提交/已提交重复后才 2xx 空 body；完整 u64 session_id；receipt 并发去重与冲突；连接 new/auth/close | COMP04 核心+真实 controller HTTP/SQLite 已覆盖；完整生产 router 另验证装配、u64、空 ACK、重复和依赖失败 |
-| 32–35 | alarm / active conn / audit note / record | 保留明确不支持；后续验证空 ACK、GUID JSON string、授权备注与二进制上传协议 | 缺失，后续阶段 |
+| 32–35 | alarm / active conn / audit note / record | 空ACK、GUID JSON string、授权备注、字节上传分别验证；34只判HTTP200且需非空GUID；35私有ENABLE=false无writer | 缺路由，35为静态不可达保留实现 |
+| 36 | legacy Sciter POST /api/ab/get | 请求{}；data为JSON字符串、updated_at可选；不能以Flutter GET /api/ab代替 | 缺路由；保留Sciter入口条件 |
 
-当前 35 项中 28 个固定 method/path 有生产路由（含当前条件不可达的 09），7 项缺失。HEAD 不是第 36 项业务功能。现有 `http/http_test.go` 的路由 inventory 证明注册形状；`TestProductionOIDCRoutesPublicPKCEAndLocalSession`、`TestProductionOIDCAdminEnvelopeAndRouteAudience` 等证明部分真实登录/当前账号/退出边界。本轮地址簿、分页、策略与审计已有明确测试证据，但不能由路由计数推导全部契约或外部运行验收通过。
+36个固定method/path中28项注册、8项缺路由；34项有源码调用链，09/35为条件不可达保留实现。HEAD `/api/login-options`另列传输探测，不属于36项业务功能。Sciter入口不能等价成标准Flutter GUI必然触发。现有 `http/http_test.go` 的路由 inventory 证明注册形状；`TestProductionOIDCRoutesPublicPKCEAndLocalSession`、`TestProductionOIDCAdminEnvelopeAndRouteAudience` 等证明部分真实登录/当前账号/退出边界。本轮地址簿、分页、策略与审计已有明确测试证据，但不能由路由计数推导全部契约或外部运行验收通过。
 
 ## COMP02/03 地址簿、分页与字段
 
@@ -66,7 +67,7 @@
 
 管理员策略接口是全量设置：默认策略请求 `{}`、设备策略省略 config_options（仍需合法 id/peer_id），或显式 `config_options:null`，都按清空整份策略处理，统一存成 `{}`，不是 PATCH。`TestProductionHeartbeatNilStrategyOptionsClearAsJSONObject` 用生产路由和 SQLite 验证全局默认、未绑定默认及设备策略的省略/null/空对象设置，随后心跳明确清除历史键。历史库已经存在的 `null`、`[]`、损坏 JSON 或 AbId 指向缺失集合不会被读取端自动当空成功，需管理员明确重存有效对象或修正关联；本修复不推断迁移这些旧数据。
 
-本地 `hbb_common` 子模块未初始化；补充只读核对了锁定提交 `5d52530b636fb296a324260b074780cf559e0093` 的 [config.rs](https://github.com/rustdesk/hbb_common/blob/5d52530b636fb296a324260b074780cf559e0093/src/config.rs#L1148)。`1148–1177,2570–2596` 确认配置优先级及保存过滤；`2616–2645` 的 HARD_SETTINGS 开关只查 HARD map，不会自动回退普通 Config。旧 `docs/peer_strategy.md` 的 HARD 回退说明不能直接当作本版本事实。
+1.5.0 的 `hbb_common` 固定为 `229b904508364c8997aad0fb5af57effac859f60`，见 [config.rs](https://github.com/rustdesk/hbb_common/blob/229b904508364c8997aad0fb5af57effac859f60/src/config.rs)。本节实现/算法测试属于既有策略切片证据，下述历史分析行号不作为本轮1.5.0逐字段核验；精确触发与响应见 [1.5.0契约07](client-api-1.5.0.md#contract-07)。旧策略文档的HARD回退说明不能直接视作当前源码事实。
 
 可明确验证的空值行为包括：经过 `option2bool` 读取的 `enable-*` 空串为 true、`allow-*` 空串为 false（客户端 `flutter/lib/common.dart:1616–1629`，Rust 锁定 config.rs:2649–2661 同规则）；`access-mode` 清空后退出 full/view 强制模式，回到逐项权限判断（`src/server/connection.rs:2676–2690`）；`whitelist` 清空后没有 IP 限制项（`:1418–1435`）；四个 preset 值可置空。上述均不是永久密码恢复、用户原值恢复或既有地址簿成员关系撤销。网络地址/API/key 等配置清空可能切断后续心跳，不应从“支持写空”推出可无条件回滚整个设备。
 
@@ -84,10 +85,16 @@
 
 ## 本轮验证与剩余运行验收
 
-已通过的本地定向 race 包括 `./internal/clientstrategy`、`./internal/clientaudit`、`./http -run ProductionHeartbeat` 和 `./http -run TestClientCompat`（均带 `-mod=readonly -race -count=1`）；相应核心/HTTP 包 vet 已通过。元数据指名测试与本段命令是局部证据，不是 35 项完整通过或发布验收。
+已通过的本地定向 race 包括 `./internal/clientstrategy`、`./internal/clientaudit`、`./http -run ProductionHeartbeat` 和 `./http -run TestClientCompat`（均带 `-mod=readonly -race -count=1`）；相应核心/HTTP 包 vet 已通过。元数据指名测试与本段命令是局部证据，不是36项完整通过或发布验收。
 
 版本 276/277/278 已分别集成升级、重复启动、版本写入失败回滚/重试的真实 SQLite 测试；覆盖 note 补空/非空约束、收据不推断历史、策略历史不回填及显式 peer FK/删除级联。后续真实 MySQL/PostgreSQL 迁移、事务失败及并发已在 `internal/integration` 与 CI 门禁补齐，见 [database-integration.md](database-integration.md)；这些不等于生产备份恢复演练。CI 与制品按对应提交记录，不能由本矩阵推导整阶段验收。
 
 2026-10-19 另行运行官方 Flutter RustDesk 1.5.0 amd64 release（非本地改编客户端）于 Ubuntu 26.04.1 GNOME。API 部署版本为 `75a51e5`，官方 hbbs/hbbr 为 1.1.16。真实外部 UDP 双向、公钥设备登记、客户端 Ready 与 key_confirmed 已核对；用户在 Ubuntu 客户端完成 OIDC，Account 显示 Logout，本地 token/user_info 非空且服务器存在匹配普通用户/身份/有效 native 会话/设备记录。配置使用独立 HOME/XDG，但与桌面共享 UID、显示和 DBus；原版 deb 解包运行，没有安装 root RustDesk 服务。
 
-本段不把注册与登录扩大为双端直连/中继、Wayland 被控权限、地址簿/分页/备注、策略实际应用或真实远控审计通过。这些各自记录实际 UI 结果；七个缺失接口仍按原阶段处理。
+用户另在该官方Ubuntu客户端手工确认 **My address book基本可用**。这不包括逐项note缺失保留/空清除、千条分页、策略实际应用或真实远控审计；没有因此执行logout，也未确认双端直连/中继或Wayland被控权限。UI基本可用不能推导36项/所有同路径变体通过；八个缺失路由仍待实现，其中record保持静态不可达条件。
+
+## COMP01 1.5.0同步边界
+
+本切片仅同步文档/JSON，没有重跑Go、实库、GUI或CI；保留指名测试作为历史证据。检查覆盖36项唯一method/path、01–35编号稳定、Sciter补漏、固定源码与本地测试/文档引用。
+
+独立复核修正：legacy `POST /api/audit/conn` 无Bearer，本地token仅入口门禁，忽略业务body；Flutter `PUT /api/audit` 只判HTTP200且需已有GUID，与legacy备注入口独立，并非fallback。个人密码保存 `{id,hash}` 与共享 `{id,password}` 互斥；record私有false开关无writer。完整字段Schema和全部错误路径尚未冻结。
