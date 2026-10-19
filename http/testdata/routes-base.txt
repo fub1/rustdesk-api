@@ -65,6 +65,7 @@ GET /upload/*filepath
 HEAD /_admin/*filepath
 HEAD /upload/*filepath
 POST /api/ab
+POST /api/ab/get
 POST /api/ab/peer/add/:guid
 POST /api/ab/peers
 POST /api/ab/personal

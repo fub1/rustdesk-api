@@ -90,6 +90,7 @@ func ApiInit(g *gin.Engine, sessions *httpapi.Handler) {
 		ab := &api.Ab{}
 		//获取地址
 		frg.GET("/ab", ab.Ab)
+		frg.POST("/ab/get", ab.Ab)
 		//更新地址
 		frg.POST("/ab", ab.UpAb)
 	}

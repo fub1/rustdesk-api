@@ -1,5 +1,7 @@
 # 当前客户端 HTTP 契约与回归矩阵
 
+COMP09 读取切片新增受客户端会话校验的 `POST /api/ab/get`，复用 `GET /api/ab` 的当前用户个人簿读取与失败处理。生产 HTTP/SQLite 回归覆盖双入口响应一致、双层 JSON 字符串、空数组、个人范围、匿名拒绝、数据库故障和取消。本切片未进行真实 Sciter 进程或标准 Flutter GUI 的新增验收；整本写入省略颜色的兼容留在下一切片。
+
 COMP07 已在 COMP08 的统一范围上补齐标签 rename/delete 与 `address_books.tags` 引用的同事务更新：覆盖同 owner/collection 的全部物理行，保留无关标签顺序/重复、其他列和时间戳；只有参与改名的行才合并新名称碰撞。坏 JSON、查询/写入/原始值 CAS 冲突、取消和 COMMIT 失败均整体回滚，不返回空成功。
 
 客户端标签名按精确字符串处理，MySQL 的默认大小写/重音/尾空格折叠不会扩大匹配范围；后续写入按已识别 tag 主键进行。八个客户端写动作（标签四项、peer 增改删、legacy 整本替换）在首次快照读取前按 user ID 升序协调 actor/owner 锁，保持现有 user→session 锁序。管理端并非全部参与此锁规则；SQLite 使用现有事务写锁，冲突失败回滚。CAS 和本次事务不阻止以后一个显式新请求重新提交旧标签。
@@ -34,9 +36,9 @@ COMP08 切片已通过 Go1.23.10/CGO1 的全仓 race/vet/build、生产 router+S
 | 27–29 | accessible groups/users/peers | current/pageSize、真实 total、授权后分页；Peer.info.device_name 映射；授权依赖故障不得扩权 | COMP02 生产路由+SQLite 已覆盖千条级分页、角色/组范围和依赖失败 |
 | 30–31 | conn/file audit | 事务提交/已提交重复后才 2xx 空 body；完整 u64 session_id；receipt 并发去重与冲突；连接 new/auth/close | COMP04 核心+真实 controller HTTP/SQLite 已覆盖；完整生产 router 另验证装配、u64、空 ACK、重复和依赖失败 |
 | 32–35 | alarm / active conn / audit note / record | 空ACK、GUID JSON string、授权备注、字节上传分别验证；34只判HTTP200且需非空GUID；35私有ENABLE=false无writer | 缺路由，35为静态不可达保留实现 |
-| 36 | legacy Sciter POST /api/ab/get | 请求{}；data为JSON字符串、updated_at可选；不能以Flutter GET /api/ab代替 | 缺路由；保留Sciter入口条件 |
+| 36 | legacy Sciter POST /api/ab/get | 请求{}；data为JSON字符串、updated_at可选；不能以Flutter GET /api/ab代替 | COMP09 读取切片已补生产路由与 HTTP/SQLite 回归；真实 Sciter 验收待完成 |
 
-36个固定method/path中28项注册、8项缺路由；34项有源码调用链，09/35为条件不可达保留实现。HEAD `/api/login-options`另列传输探测，不属于36项业务功能。Sciter入口不能等价成标准Flutter GUI必然触发。现有 `http/http_test.go` 的路由 inventory 证明注册形状；`TestProductionOIDCRoutesPublicPKCEAndLocalSession`、`TestProductionOIDCAdminEnvelopeAndRouteAudience` 等证明部分真实登录/当前账号/退出边界。本轮地址簿、分页、策略与审计已有明确测试证据，但不能由路由计数推导全部契约或外部运行验收通过。
+固定 b59f7a5 盘点为28项注册、8项缺路由；COMP09 读取切片后为29项注册、7项缺路由。36个固定method/path中，34项有源码调用链，09/35为条件不可达保留实现。HEAD `/api/login-options`另列传输探测，不属于36项业务功能。Sciter入口不能等价成标准Flutter GUI必然触发。现有 `http/http_test.go` 的路由 inventory 证明注册形状；`TestProductionOIDCRoutesPublicPKCEAndLocalSession`、`TestProductionOIDCAdminEnvelopeAndRouteAudience` 等证明部分真实登录/当前账号/退出边界。本轮地址簿、分页、策略与审计已有明确测试证据，但不能由路由计数推导全部契约或外部运行验收通过。
 
 ## COMP02/03 地址簿、分页与字段
 

@@ -2,7 +2,7 @@
   "format_version": 1,
   "client_revision": "fada664df7a294d1d1a9ca3e7cd3637069122f17",
   "api_inventory_revision": "b59f7a56cd9e90cf48c760d2aca808a7241582f0",
-  "scope": "COMP01 official1.5.0 HTTP source inventory, retained variants and historical partial evidence; not36/36 acceptance, new tests, deployment or same-SHA CI. ID change/non-HTTP paused.",
+  "scope": "COMP01 official1.5.0 HTTP source inventory, retained variants and historical partial evidence; not36/36 acceptance, new tests, deployment or same-SHA CI.",
   "source_analysis": "docs/client-api-1.5.0.md",
   "details": "docs/client-compatibility.md",
   "contract_count": 36,
@@ -2372,10 +2372,14 @@
       "auth": "bearer",
       "request_shape": "empty_json_object_legacy_sciter",
       "response_shape": "object_data_json_string_optional_updated_at",
-      "route_status": "deferred_missing",
-      "coverage": "unsupported",
-      "existing_partial_tests": [],
-      "fixture_status": "source_confirmed_missing_not_executed",
+      "route_status": "route_present",
+      "coverage": "covered_partial",
+      "existing_partial_tests": [
+        "TestSciterAddressBookGetReadsOnlyAuthenticatedPersonalBook",
+        "TestSciterAddressBookGetEmptyDocumentWireTypes",
+        "TestSciterAddressBookGetStorageFailureAndCancellationFailClosed"
+      ],
+      "fixture_status": "production_http_sqlite_tested_not_real_client",
       "client_variants": [
         {
           "id": "ab_legacy_get_sciter",
@@ -2407,7 +2411,12 @@
       "contract_document": "docs/client-api-1.5.0.md#contract-36",
       "route_registered_at_inventory_revision": false,
       "field_freeze_status": "source_summary_not_complete_JSON_Schema",
-      "condition_notes": "Preserved Sciter emits POST /ab/get, not interchangeable with Flutter GET /ab."
+      "condition_notes": "Preserved Sciter emits POST /ab/get, not interchangeable with Flutter GET /ab.",
+      "implementation_update": {
+        "task": "COMP09-read",
+        "route": "POST /api/ab/get uses the same authenticated personal read as GET /api/ab",
+        "real_client": "not run for this slice"
+      }
     }
   ],
   "verification": {
@@ -2535,8 +2544,19 @@
         "no schema change or added route",
         "management writers do not all share the owner lock protocol",
         "future explicit client writes can supply old tags again; no previous-value restoration/version protocol added",
-        "ID change and binary protocols remain paused"
+        "binary protocol changes are outside this HTTP slice"
       ]
+    },
+    {
+      "task": "COMP09-read",
+      "source_inventory_unchanged": true,
+      "business_scope": "authenticated Sciter POST /api/ab/get alias; no schema change",
+      "current_registered_method_paths": 29,
+      "current_missing_method_paths": 7,
+      "local_targeted_checks": "production HTTP/SQLite scope, wire types, anonymous rejection, query failure and cancellation",
+      "ci": "exact commit Actions is authoritative",
+      "real_client": "not run for this slice",
+      "remaining": "whole-document write without tag_colors is the next slice"
     }
   ]
 }

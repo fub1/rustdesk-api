@@ -71,6 +71,7 @@ HEAD /_admin/*filepath
 HEAD /upload/*filepath
 HEAD /webclient/*filepath
 POST /api/ab
+POST /api/ab/get
 POST /api/ab/peer/add/:guid
 POST /api/ab/peers
 POST /api/ab/personal
