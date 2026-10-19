@@ -80,12 +80,14 @@ type Tag struct {
 	Color uint   `json:"color"`
 }
 type User struct {
-	Name    string         `json:"name"`
-	Email   string         `json:"email"`
-	Note    string         `json:"note"`
-	IsAdmin bool           `json:"is_admin"`
-	Status  int            `json:"status"`
-	Info    map[string]any `json:"info"`
+	Name        string         `json:"name"`
+	DisplayName string         `json:"display_name"`
+	Avatar      string         `json:"avatar"`
+	Email       string         `json:"email"`
+	Note        string         `json:"note"`
+	IsAdmin     bool           `json:"is_admin"`
+	Status      int            `json:"status"`
+	Info        map[string]any `json:"info"`
 }
 type DeviceGroup struct {
 	Name string `json:"name"`

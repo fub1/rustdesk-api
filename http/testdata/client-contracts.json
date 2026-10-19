@@ -71,9 +71,11 @@
       "request_shape": "login_json_deviceInfo",
       "response_shape": "top_level_auth_body",
       "route_status": "route_present",
-      "coverage": "not_yet_production_account_tested",
-      "existing_partial_tests": [],
-      "fixture_status": "planned_not_executed",
+      "coverage": "covered_partial",
+      "existing_partial_tests": [
+        "http/user_profile_compat_test.go:TestClientProfileCurrentAndLocalLogin"
+      ],
+      "fixture_status": "local_production_http_sqlite_profile_tested_not_real_client",
       "client_variants": [
         {
           "id": "login_flutter_account",
@@ -197,7 +199,12 @@
       },
       "contract_document": "docs/client-api-1.5.0.md#contract-02",
       "route_registered_at_inventory_revision": true,
-      "field_freeze_status": "source_summary_not_complete_JSON_Schema"
+      "field_freeze_status": "source_summary_not_complete_JSON_Schema",
+      "implementation_update": {
+        "task": "COMP11",
+        "semantics": "explicit local nickname/display_name and avatar, including empty strings; original response envelope and authorization scope retained",
+        "real_client": "display, image loading and cache refresh not run"
+      }
     },
     {
       "id": "03",
@@ -209,9 +216,10 @@
       "route_status": "route_present",
       "coverage": "covered_partial",
       "existing_partial_tests": [
-        "http/oidc_integration_test.go:TestProductionOIDCRoutesPublicPKCEAndLocalSession"
+        "http/oidc_integration_test.go:TestProductionOIDCRoutesPublicPKCEAndLocalSession",
+        "http/user_profile_compat_test.go:TestClientProfileCurrentAndLocalLogin"
       ],
-      "fixture_status": "existing_local_oidc_http_sqlite_tls_evidence_not_current_sha_ci",
+      "fixture_status": "local_production_http_sqlite_profile_tested_not_real_client",
       "client_variants": [
         {
           "id": "current_flutter",
@@ -259,7 +267,12 @@
       },
       "contract_document": "docs/client-api-1.5.0.md#contract-03",
       "route_registered_at_inventory_revision": true,
-      "field_freeze_status": "source_summary_not_complete_JSON_Schema"
+      "field_freeze_status": "source_summary_not_complete_JSON_Schema",
+      "implementation_update": {
+        "task": "COMP11",
+        "semantics": "explicit local nickname/display_name and avatar, including empty strings; original response envelope and authorization scope retained",
+        "real_client": "display, image loading and cache refresh not run"
+      }
     },
     {
       "id": "04",
@@ -381,9 +394,10 @@
       "route_status": "route_present",
       "coverage": "covered_partial",
       "existing_partial_tests": [
-        "http/oidc_integration_test.go:TestProductionOIDCRoutesPublicPKCEAndLocalSession"
+        "http/oidc_integration_test.go:TestProductionOIDCRoutesPublicPKCEAndLocalSession",
+        "http/user_profile_compat_test.go:TestClientProfileOIDCPollUsesLocalProjection"
       ],
-      "fixture_status": "existing_local_oidc_http_sqlite_tls_evidence_not_current_sha_ci",
+      "fixture_status": "local_production_http_sqlite_profile_tested_not_real_client",
       "client_variants": [
         {
           "id": "oidc_query",
@@ -417,7 +431,12 @@
       },
       "contract_document": "docs/client-api-1.5.0.md#contract-06",
       "route_registered_at_inventory_revision": true,
-      "field_freeze_status": "source_summary_not_complete_JSON_Schema"
+      "field_freeze_status": "source_summary_not_complete_JSON_Schema",
+      "implementation_update": {
+        "task": "COMP11",
+        "semantics": "explicit local nickname/display_name and avatar, including empty strings; original response envelope and authorization scope retained",
+        "real_client": "display, image loading and cache refresh not run"
+      }
     },
     {
       "id": "07",
@@ -1685,9 +1704,10 @@
       "coverage": "covered_partial",
       "existing_partial_tests": [
         "http/addressbook_compat_test.go:TestClientCompatGroupListsPaginateAfterAuthorization",
-        "http/addressbook_compat_test.go:TestClientCompatAuthorizationDependencyFailureDoesNotExpandScope"
+        "http/addressbook_compat_test.go:TestClientCompatAuthorizationDependencyFailureDoesNotExpandScope",
+        "http/user_profile_compat_test.go:TestClientProfileUsersPreservesVisibilityAndPagination"
       ],
-      "fixture_status": "local_targeted_race_passed_no_real_client_production_db_or_current_ci",
+      "fixture_status": "local_production_http_sqlite_profile_tested_not_real_client",
       "verification_level": "production_router_http_sqlite",
       "client_variants": [
         {
@@ -1721,7 +1741,12 @@
       },
       "contract_document": "docs/client-api-1.5.0.md#contract-28",
       "route_registered_at_inventory_revision": true,
-      "field_freeze_status": "source_summary_not_complete_JSON_Schema"
+      "field_freeze_status": "source_summary_not_complete_JSON_Schema",
+      "implementation_update": {
+        "task": "COMP11",
+        "semantics": "explicit local nickname/display_name and avatar, including empty strings; original response envelope and authorization scope retained",
+        "real_client": "display, image loading and cache refresh not run"
+      }
     },
     {
       "id": "29",
@@ -2610,6 +2635,14 @@
         "HTTP boundary retains existing global service/config composition",
         "device id/uuid report fields are not cryptographic identity proof"
       ]
+    },
+    {
+      "task": "COMP11",
+      "source_inventory_unchanged": true,
+      "business_scope": "explicit existing nickname/avatar projections for account login, OIDC poll, both current-user aliases and users list; no schema, added route or IdP claim persistence",
+      "local_targeted_checks": "production HTTP/SQLite, local TLS IdP, exact response-key allowlists, nonempty/empty, native/admin envelopes, list scope/status/pagination",
+      "ci": "exact commit Actions is authoritative",
+      "real_client": "nickname display, avatar loading and cache clearing pending"
     }
   ]
 }

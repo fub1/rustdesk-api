@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	apiResponse "github.com/lejianwen/rustdesk-api/v2/http/response/api"
 	"github.com/lejianwen/rustdesk-api/v2/internal/auth"
 	"github.com/lejianwen/rustdesk-api/v2/internal/oidclogin"
 	"github.com/lejianwen/rustdesk-api/v2/model"
@@ -193,7 +194,7 @@ func (h *Handler) ClientCurrent(c *gin.Context) {
 		h.fail(c, false, auth.ErrUnauthenticated)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"name": p.User.Username, "email": p.User.Email, "note": "", "is_admin": p.User.IsAdmin, "status": 1, "info": gin.H{}})
+	c.JSON(http.StatusOK, (&apiResponse.UserPayload{}).FromUser(legacyUser(p.User)))
 }
 
 func (h *Handler) AdminCurrent(c *gin.Context) {

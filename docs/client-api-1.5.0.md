@@ -1,5 +1,7 @@
 # RustDesk 1.5.0 HTTP API 契约基线
 
+后续 COMP11 实现：native 登录、OIDC poll、当前用户及用户列表显式返回本地 display_name/avatar，含空字符串；可见性、分页与管理端封套保持原规则。测试见 `http/user_profile_compat_test.go`，真实客户端头像加载/昵称与缓存刷新尚未验收。
+
 后续 COMP10 实现：sysinfo 用户名省略/空串均清旧值，其他基础字段缺失保留/空串写入，显式无效值拒绝；已执行的旧预设副写纳入同事务。原文成功 ACK 只在提交后发送；预设归属/准入及未支持字段仍归 PRE01/02。证据与真实客户端未验收边界见[当前兼容矩阵](client-compatibility.md)。以下固定 API 静态基线描述继续保留为修复前对照。
 
 客户端官方 **1.5.0**，固定 `fada664df7a294d1d1a9ca3e7cd3637069122f17`；hbb_common固定 `229b904508364c8997aad0fb5af57effac859f60`。API静态对照基线 `b59f7a56cd9e90cf48c760d2aca808a7241582f0`（b59f7a5）。只记录客户端 HTTP 契约。

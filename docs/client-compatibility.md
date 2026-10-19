@@ -1,5 +1,9 @@
 # 当前客户端 HTTP 契约与回归矩阵
 
+COMP11 对账号登录、OIDC auth-query、POST currentUser、GET user/info 和 GET users 显式投影本地 `Nickname → display_name`、`Avatar → avatar`。空值仍返回字符串，便于客户端刷新清空缓存；保留 name/email/note/is_admin/status/info 的已有形状，不用邮箱或 IdP claims 覆盖本地资料。native 当前用户复用既有响应 DTO；领域列表 DTO 保持独立，不反向依赖 HTTP 层。没有新增资料模型或持久化 claims。
+
+`http/user_profile_compat_test.go` 覆盖非空/空串、账号登录、两个 current 入口、真实 TLS 测试 IdP 的 native/admin poll 及本地资料变更、用户列表共享/私有范围、状态过滤与分页；严格响应键名单确保内部备注、凭据、归属等字段不扩散。管理端原 nickname/avatar/token/route_names 封套保持既有形状。这里是生产 HTTP/SQLite 及本地 TLS fixture，未运行真实 Flutter 的昵称展示、头像加载与资料清空刷新验收。
+
 COMP10 将匿名 sysinfo 基础写入收敛到 `internal/clientsysinfo` 的显式 DB/Context 事务和独立 DTO：固定1.5.0 在无活动用户时省略 username，因此省略或显式空串均清空旧用户名；cpu/hostname/memory/os/uuid/version 缺失保留、显式空串写入，已识别字段 null 拒绝400。id 必须为非空字符串，未知字段不进入持久化白名单。普通基础报告保留 owner/group/alias/ab/preset/在线记录等管理列，不改变其他调用方的通用 PeerService.Update。
 
 现有两个预设选项通过独立 legacy helper 保持原行为，已执行的基础写入、预设别名/地址簿写入及清理在同一事务内检查错误；只有提交成功才返回原文 `SYSINFO_UPDATED`。新建设备沿用 uuid+device id 最新登录日志关联；查询故障不再被当作不存在。预设 owner=1、准入和未支持的选项仍是 PRE01/02 的未完成范围，目标簿不存在继续兼容为无操作，不代表预设已生效。设备字符串仍是匿名报告资料，不是身份认证证明，未新增 UUID 绑定准入政策。
@@ -29,7 +33,7 @@ COMP08 切片已通过 Go1.23.10/CGO1 的全仓 race/vet/build、生产 router+S
 | 编号 | 回归范围 | HTTP 与数据库必须共同验证 | 盘点状态 |
 | --- | --- | --- | --- |
 | 01 | GET login-options；HEAD 连通性探测另列 | 顶层字符串数组；OIDC provider 名称；HEAD 不带响应体，不与能力支持计数混用 | 路由存在，待业务回归 |
-| 02 | POST login | account 登录、deviceInfo、顶层 token/type/user.info；禁用/坏密码；失败不写会话或登录日志 | 路由存在，待生产 handler 密码登录回归 |
+| 02 | POST login | account 登录、deviceInfo、顶层 token/type/user.info；禁用/坏密码；失败不写会话或登录日志 | COMP11 已测生产密码登录的资料投影；完整多阶段登录仍属 SEC08 |
 | 03–04 | currentUser/logout | 顶层用户、401 清账号；撤销 DB token；退出不依赖客户端收到 ACK | 已有部分真实路由+SQLite 回归 |
 | 05–06 | OIDC auth/auth-query | code/url、固定 pending 原文、native envelope；路由/设备隔离；真实 TLS IdP→身份→本地 session 事务 | 已有部分真实路由+SQLite+TLS 回归 |
 | 07 | heartbeat | 匿名设备上报形状；相同版本 `{}`；修改、删除、默认切换后的 config_options；UUID 边界；失败不当成功 | COMP05 已实现，核心与生产 HTTP+SQLite 定向 race 通过；未运行真实 Rust 客户端 |
@@ -41,8 +45,8 @@ COMP08 切片已通过 Go1.23.10/CGO1 的全仓 race/vet/build、生产 router+S
 | 16–17 | legacy 整本地址簿 GET/POST | data 是 JSON 字符串，tag_colors 再编码；个人簿整本更新与 tag 同事务；保留扩展字段和共享/他人数据 | 生产路由+SQLite 已覆盖 1007 peers/1003 tags 读取及写失败回滚 |
 | 18–19 | peers / tags | 空 body；peers current/pageSize/ab；tags 顶层数组；权限过滤；超过 1000 条不截断 | COMP02 生产路由+SQLite 已覆盖分页、旧 page 别名、非法参数及 wire 类型 |
 | 20–21 | peer add/update | 单对象新增；字段缺失不改、空串清除；note/主机/密码/hash；forceAlwaysRelay 字符串与 same_server 布尔 | COMP03 生产路由+SQLite 已覆盖部分更新、note 清空/回读及跨用户主机元数据保护 |
-| 22 | peer delete | DELETE JSON 数组 body；资源范围和持久化删除 | 路由保留；本轮未新增此入口的定向 HTTP 业务测试 |
-| 23–26 | tag add/rename/update/delete | 颜色整数；重命名同步 peer 引用；DELETE 数组 body；越权拒绝 | 路由保留；本轮已测 tag 读取/legacy tag 事务，尚未逐个定向验证这四个变更入口 |
+| 22 | peer delete | DELETE JSON 数组 body；资源范围和持久化删除 | COMP08 已补生产 HTTP/SQLite 的范围、权限、重复/缺项、批量失败回滚及实库验证 |
+| 23–26 | tag add/rename/update/delete | 颜色整数；重命名同步 peer 引用；DELETE 数组 body；越权拒绝 | COMP08 已测四个写入口的共享规则/失败；COMP07 已测改名删除引用事务、精确名称与实库并发 |
 | 27–29 | accessible groups/users/peers | current/pageSize、真实 total、授权后分页；Peer.info.device_name 映射；授权依赖故障不得扩权 | COMP02 生产路由+SQLite 已覆盖千条级分页、角色/组范围和依赖失败 |
 | 30–31 | conn/file audit | 事务提交/已提交重复后才 2xx 空 body；完整 u64 session_id；receipt 并发去重与冲突；连接 new/auth/close | COMP04 核心+真实 controller HTTP/SQLite 已覆盖；完整生产 router 另验证装配、u64、空 ACK、重复和依赖失败 |
 | 32–35 | alarm / active conn / audit note / record | 空ACK、GUID JSON string、授权备注、字节上传分别验证；34只判HTTP200且需非空GUID；35私有ENABLE=false无writer | 缺路由，35为静态不可达保留实现 |
@@ -61,7 +65,7 @@ COMP08 切片已通过 Go1.23.10/CGO1 的全仓 race/vet/build、生产 router+S
 - `TestClientCompatLegacyReplaceIsAtomicAndPersonalOnly`：data 二次 JSON 编码、peer/tag 同事务，失败无部分提交；不改共享/他人记录；保留旧客户端省略的扩展字段，显式空 note 清除，个人簿空快照只清个人数据。
 - `TestClientCompatQueryFailuresAndCanceledRequestsFailClosed`、`TestClientCompatAuthorizationDependencyFailureDoesNotExpandScope`：读取、授权依赖和请求取消不能变成空成功或全量可见。
 
-本轮指名回归未覆盖 settings/personal 初始化、细粒度 peer DELETE 及四个 tag 变更入口，不把相邻读取或 legacy 写测试标成这些入口已经通过。
+COMP02/03 当时未覆盖的 peer DELETE 与 tag 四个变更入口，已由后续 COMP08 的 TestClientCompatSharedWritesUseMaximumScopedRule、TestClientCompatBatchDeletesRollbackMissingAndWriteFailures 等生产 HTTP/SQLite 与两引擎测试补齐；COMP07 另补标签引用事务。settings/personal 初始化仍缺指名业务回归；逐入口会话负向及真实客户端细项继续归 COMP12，不把既有自动测试重新列为未实现。
 
 ## COMP04 审计投递与关联
 

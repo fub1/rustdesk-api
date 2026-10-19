@@ -58,7 +58,7 @@ func (s *Store) Users(ctx context.Context, actor Actor, page Page, enabledOnly b
 			if v.Status == model.COMMON_STATUS_ENABLE {
 				status = 1
 			}
-			rows = append(rows, User{Name: v.Username, Email: v.Email, IsAdmin: v.IsAdmin != nil && *v.IsAdmin, Status: status, Info: map[string]any{}})
+			rows = append(rows, User{Name: v.Username, DisplayName: v.Nickname, Avatar: v.Avatar, Email: v.Email, IsAdmin: v.IsAdmin != nil && *v.IsAdmin, Status: status, Info: map[string]any{}})
 		}
 		return nil
 	})
