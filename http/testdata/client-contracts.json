@@ -1286,9 +1286,15 @@
       "request_shape": "json_id_array_in_body",
       "response_shape": "action_ack_without_error",
       "route_status": "route_present",
-      "coverage": "not_yet_business_tested",
-      "existing_partial_tests": [],
-      "fixture_status": "route_retained_no_new_named_targeted_http_business_test_in_this_slice",
+      "coverage": "covered_partial",
+      "existing_partial_tests": [
+        "http/shared_write_permissions_test.go:TestClientCompatSharedWritesUseMaximumScopedRule",
+        "http/shared_write_permissions_test.go:TestClientCompatSharedWritesRejectWrongOwnerRules",
+        "internal/clientcompat/writes_test.go:TestSharedWritesReportCommitFailureAndRollback",
+        "internal/integration/shared_write_test.go:TestClientSharedWriteRulesAndBatchRollback",
+        "internal/integration/shared_write_test.go:TestClientSharedWriteRealCommitFailure"
+      ],
+      "fixture_status": "COMP08 local production HTTP/SQLite race and real MySQL/PostgreSQL store checks passed; see commit Actions for exact-SHA CI; no real-client acceptance this slice",
       "client_variants": [
         {
           "id": "ab_peer_delete",
@@ -1322,7 +1328,12 @@
       },
       "contract_document": "docs/client-api-1.5.0.md#contract-22",
       "route_registered_at_inventory_revision": true,
-      "field_freeze_status": "source_summary_not_complete_JSON_Schema"
+      "field_freeze_status": "source_summary_not_complete_JSON_Schema",
+      "verification_level": "production_router_http_sqlite_and_real_mysql_postgresql_store",
+      "implementation_notes": [
+        "COMP08 uses shared current/scope MAX authorization and exact owner/collection inside request-context transaction; safe dependency errors and whitelisted DTOs",
+        "COMP08 duplicate input keys deduplicated; every matching physical duplicate row in exact scope deleted; any missing key/write/commit failure rolls back complete batch; retry after committed delete returns ItemNotFound"
+      ]
     },
     {
       "id": "23",
@@ -1332,9 +1343,15 @@
       "request_shape": "name_color_json",
       "response_shape": "action_ack_without_error",
       "route_status": "route_present",
-      "coverage": "not_yet_business_tested",
-      "existing_partial_tests": [],
-      "fixture_status": "route_retained_no_new_named_targeted_http_business_test_in_this_slice",
+      "coverage": "covered_partial",
+      "existing_partial_tests": [
+        "http/shared_write_permissions_test.go:TestClientCompatSharedWritesUseMaximumScopedRule",
+        "http/shared_write_permissions_test.go:TestClientCompatSharedWritesRejectWrongOwnerRules",
+        "internal/clientcompat/writes_test.go:TestSharedWritesReportCommitFailureAndRollback",
+        "internal/integration/shared_write_test.go:TestClientSharedWriteRulesAndBatchRollback",
+        "internal/integration/shared_write_test.go:TestClientSharedWriteRealCommitFailure"
+      ],
+      "fixture_status": "COMP08 local production HTTP/SQLite race and real MySQL/PostgreSQL store checks passed; see commit Actions for exact-SHA CI; no real-client acceptance this slice",
       "client_variants": [
         {
           "id": "ab_tag_add",
@@ -1368,7 +1385,11 @@
       },
       "contract_document": "docs/client-api-1.5.0.md#contract-23",
       "route_registered_at_inventory_revision": true,
-      "field_freeze_status": "source_summary_not_complete_JSON_Schema"
+      "field_freeze_status": "source_summary_not_complete_JSON_Schema",
+      "verification_level": "production_router_http_sqlite_and_real_mysql_postgresql_store",
+      "implementation_notes": [
+        "COMP08 uses shared current/scope MAX authorization and exact owner/collection inside request-context transaction; safe dependency errors and whitelisted DTOs"
+      ]
     },
     {
       "id": "24",
@@ -1378,9 +1399,15 @@
       "request_shape": "old_new_json",
       "response_shape": "action_ack_without_error",
       "route_status": "route_present",
-      "coverage": "not_yet_business_tested",
-      "existing_partial_tests": [],
-      "fixture_status": "route_retained_no_new_named_targeted_http_business_test_in_this_slice",
+      "coverage": "covered_partial",
+      "existing_partial_tests": [
+        "http/shared_write_permissions_test.go:TestClientCompatSharedWritesUseMaximumScopedRule",
+        "http/shared_write_permissions_test.go:TestClientCompatSharedWritesRejectWrongOwnerRules",
+        "internal/clientcompat/writes_test.go:TestSharedWritesReportCommitFailureAndRollback",
+        "internal/integration/shared_write_test.go:TestClientSharedWriteRulesAndBatchRollback",
+        "internal/integration/shared_write_test.go:TestClientSharedWriteRealCommitFailure"
+      ],
+      "fixture_status": "COMP08 local production HTTP/SQLite race and real MySQL/PostgreSQL store checks passed; see commit Actions for exact-SHA CI; no real-client acceptance this slice",
       "client_variants": [
         {
           "id": "ab_tag_rename",
@@ -1414,7 +1441,12 @@
       },
       "contract_document": "docs/client-api-1.5.0.md#contract-24",
       "route_registered_at_inventory_revision": true,
-      "field_freeze_status": "source_summary_not_complete_JSON_Schema"
+      "field_freeze_status": "source_summary_not_complete_JSON_Schema",
+      "verification_level": "production_router_http_sqlite_and_real_mysql_postgresql_store",
+      "implementation_notes": [
+        "COMP08 uses shared current/scope MAX authorization and exact owner/collection inside request-context transaction; safe dependency errors and whitelisted DTOs",
+        "COMP07 peer.tags reference maintenance and write serialization not yet included in COMP08"
+      ]
     },
     {
       "id": "25",
@@ -1424,9 +1456,15 @@
       "request_shape": "name_color_json",
       "response_shape": "action_ack_without_error",
       "route_status": "route_present",
-      "coverage": "not_yet_business_tested",
-      "existing_partial_tests": [],
-      "fixture_status": "route_retained_no_new_named_targeted_http_business_test_in_this_slice",
+      "coverage": "covered_partial",
+      "existing_partial_tests": [
+        "http/shared_write_permissions_test.go:TestClientCompatSharedWritesUseMaximumScopedRule",
+        "http/shared_write_permissions_test.go:TestClientCompatSharedWritesRejectWrongOwnerRules",
+        "internal/clientcompat/writes_test.go:TestSharedWritesReportCommitFailureAndRollback",
+        "internal/integration/shared_write_test.go:TestClientSharedWriteRulesAndBatchRollback",
+        "internal/integration/shared_write_test.go:TestClientSharedWriteRealCommitFailure"
+      ],
+      "fixture_status": "COMP08 local production HTTP/SQLite race and real MySQL/PostgreSQL store checks passed; see commit Actions for exact-SHA CI; no real-client acceptance this slice",
       "client_variants": [
         {
           "id": "ab_tag_color",
@@ -1460,7 +1498,11 @@
       },
       "contract_document": "docs/client-api-1.5.0.md#contract-25",
       "route_registered_at_inventory_revision": true,
-      "field_freeze_status": "source_summary_not_complete_JSON_Schema"
+      "field_freeze_status": "source_summary_not_complete_JSON_Schema",
+      "verification_level": "production_router_http_sqlite_and_real_mysql_postgresql_store",
+      "implementation_notes": [
+        "COMP08 uses shared current/scope MAX authorization and exact owner/collection inside request-context transaction; safe dependency errors and whitelisted DTOs"
+      ]
     },
     {
       "id": "26",
@@ -1470,9 +1512,15 @@
       "request_shape": "json_name_array_in_body",
       "response_shape": "action_ack_without_error",
       "route_status": "route_present",
-      "coverage": "not_yet_business_tested",
-      "existing_partial_tests": [],
-      "fixture_status": "route_retained_no_new_named_targeted_http_business_test_in_this_slice",
+      "coverage": "covered_partial",
+      "existing_partial_tests": [
+        "http/shared_write_permissions_test.go:TestClientCompatSharedWritesUseMaximumScopedRule",
+        "http/shared_write_permissions_test.go:TestClientCompatSharedWritesRejectWrongOwnerRules",
+        "internal/clientcompat/writes_test.go:TestSharedWritesReportCommitFailureAndRollback",
+        "internal/integration/shared_write_test.go:TestClientSharedWriteRulesAndBatchRollback",
+        "internal/integration/shared_write_test.go:TestClientSharedWriteRealCommitFailure"
+      ],
+      "fixture_status": "COMP08 local production HTTP/SQLite race and real MySQL/PostgreSQL store checks passed; see commit Actions for exact-SHA CI; no real-client acceptance this slice",
       "client_variants": [
         {
           "id": "ab_tag_delete",
@@ -1506,7 +1554,13 @@
       },
       "contract_document": "docs/client-api-1.5.0.md#contract-26",
       "route_registered_at_inventory_revision": true,
-      "field_freeze_status": "source_summary_not_complete_JSON_Schema"
+      "field_freeze_status": "source_summary_not_complete_JSON_Schema",
+      "verification_level": "production_router_http_sqlite_and_real_mysql_postgresql_store",
+      "implementation_notes": [
+        "COMP08 uses shared current/scope MAX authorization and exact owner/collection inside request-context transaction; safe dependency errors and whitelisted DTOs",
+        "COMP08 duplicate input keys deduplicated; every matching physical duplicate row in exact scope deleted; any missing key/write/commit failure rolls back complete batch; retry after committed delete returns ItemNotFound",
+        "COMP07 peer.tags reference maintenance and write serialization not yet included in COMP08"
+      ]
     },
     {
       "id": "27",
@@ -2424,6 +2478,21 @@
       "title": "Same POST audit/conn path has implemented events but rejected legacy notes",
       "facts": "Session.send_note仍构造/api/audit/conn，发{id,session_id,note}无Bearer；AuditConn显式form.Note!=nil→400。new/auth/close的事务receipt、u64 session_id和空200不是这条变体的证据。 独立入口showAuditDialog在dialog.dart:1567调用sessionSendNote；Sciter src/ui/header.tis:364也调用handler.send_note。get_audit_server仅检查本地token非空才生成URL，send_note实际POST第三参为空，因此网络请求无Bearer。GUID结束备注入口要求GUID非空，不会自动回退旧POST。",
       "impact": "旧备注调用失败；新增GET active和PUT audit亦未实现，故两种备注路径都未完整支持。"
+    }
+  ],
+  "implementation_updates": [
+    {
+      "task": "COMP08",
+      "source_inventory_unchanged": true,
+      "business_scope": "five client tag/peer mutation endpoints use existing Store scope; no schema or new route",
+      "local_checks": [
+        "full repository race, vet, build passed with Go1.23.10 CGO1",
+        "production router HTTP+SQLite regression passed",
+        "MySQL8.0.46/PostgreSQL18.4 MAX, wrong-owner, atomic batch and actual COMMIT failure passed"
+      ],
+      "ci": "exact commit Actions is authoritative; not inferred from local checks",
+      "real_client": "not run for this slice",
+      "remaining": "COMP07 tag references, name equality across dialects, coordinated writes; historical API static snapshot remains b59f7a5"
     }
   ]
 }

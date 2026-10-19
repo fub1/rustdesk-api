@@ -6,7 +6,6 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/lejianwen/rustdesk-api/v2/global"
 	requstform "github.com/lejianwen/rustdesk-api/v2/http/request/api"
-	"github.com/lejianwen/rustdesk-api/v2/http/response"
 	"github.com/lejianwen/rustdesk-api/v2/internal/clientcompat"
 	"github.com/lejianwen/rustdesk-api/v2/model"
 	"github.com/lejianwen/rustdesk-api/v2/service"
@@ -129,38 +128,18 @@ func (a *Ab) PTags(c *gin.Context) {
 // @Router /ab/tag/add/{guid} [post]
 // @Security BearerAuth
 func (a *Ab) TagAdd(c *gin.Context) {
-
-	t := &model.Tag{}
-	err := c.ShouldBindJSON(t)
-	if err != nil {
-		response.Error(c, response.TranslateMsg(c, "ParamsError")+err.Error())
+	var input clientcompat.TagInput
+	if !clientBody(c, &input, true) || !input.Name.Present || input.Color == nil {
+		clientFailure(c, clientcompat.ErrInput)
 		return
 	}
-
-	u := service.AllService.UserService.CurUser(c)
-	guid := c.Param("guid")
-	_, uid, cid, err := a.CheckGuid(u, guid)
-	if err != nil {
-		response.Error(c, response.TranslateMsg(c, err.Error()))
+	store, actor, ctx, cancel, ok := clientOperation(c)
+	if !ok {
 		return
 	}
-
-	//check privileges
-	if !service.AllService.AddressBookService.CheckUserWritePrivilege(u, uid, cid) {
-		response.Error(c, response.TranslateMsg(c, "NoAccess"))
-		return
-	}
-
-	tag := service.AllService.TagService.InfoByUserIdAndNameAndCollectionId(uid, t.Name, cid)
-	if tag != nil && tag.Id != 0 {
-		response.Error(c, response.TranslateMsg(c, "ItemExists"))
-		return
-	}
-	t.UserId = uid
-	t.CollectionId = cid
-	err = service.AllService.TagService.Create(t)
-	if err != nil {
-		response.Error(c, response.TranslateMsg(c, "OperationFailed")+err.Error())
+	defer cancel()
+	if err := store.AddTag(ctx, actor, c.Param("guid"), clientcompat.Tag{Name: input.Name.Value, Color: *input.Color}); err != nil {
+		clientFailure(c, err)
 		return
 	}
 	c.String(http.StatusOK, "")
@@ -178,41 +157,18 @@ func (a *Ab) TagAdd(c *gin.Context) {
 // @Router /ab/tag/rename/{guid} [put]
 // @Security BearerAuth
 func (a *Ab) TagRename(c *gin.Context) {
-
-	t := &requstform.TagRenameForm{}
-	err := c.ShouldBindJSON(t)
-	if err != nil {
-		response.Error(c, response.TranslateMsg(c, "ParamsError")+err.Error())
+	var input clientcompat.TagRenameInput
+	if !clientBody(c, &input, true) || !input.Old.Present || !input.New.Present {
+		clientFailure(c, clientcompat.ErrInput)
 		return
 	}
-	u := service.AllService.UserService.CurUser(c)
-	guid := c.Param("guid")
-	_, uid, cid, err := a.CheckGuid(u, guid)
-	if err != nil {
-		response.Error(c, response.TranslateMsg(c, err.Error()))
+	store, actor, ctx, cancel, ok := clientOperation(c)
+	if !ok {
 		return
 	}
-
-	//check privileges
-	if !service.AllService.AddressBookService.CheckUserWritePrivilege(u, uid, cid) {
-		response.Error(c, response.TranslateMsg(c, "NoAccess"))
-		return
-	}
-
-	tag := service.AllService.TagService.InfoByUserIdAndNameAndCollectionId(uid, t.Old, cid)
-	if tag == nil || tag.Id == 0 {
-		response.Error(c, response.TranslateMsg(c, "ItemNotFound"))
-		return
-	}
-	ntag := service.AllService.TagService.InfoByUserIdAndNameAndCollectionId(uid, t.New, cid)
-	if ntag != nil && ntag.Id != 0 {
-		response.Error(c, response.TranslateMsg(c, "ItemExists"))
-		return
-	}
-	tag.Name = t.New
-	err = service.AllService.TagService.Update(tag)
-	if err != nil {
-		response.Error(c, response.TranslateMsg(c, "OperationFailed")+err.Error())
+	defer cancel()
+	if err := store.RenameTag(ctx, actor, c.Param("guid"), input.Old.Value, input.New.Value); err != nil {
+		clientFailure(c, err)
 		return
 	}
 	c.String(http.StatusOK, "")
@@ -230,35 +186,18 @@ func (a *Ab) TagRename(c *gin.Context) {
 // @Router /ab/tag/update/{guid} [put]
 // @Security BearerAuth
 func (a *Ab) TagUpdate(c *gin.Context) {
-	t := &requstform.TagColorForm{}
-	err := c.ShouldBindJSON(t)
-	if err != nil {
-		response.Error(c, response.TranslateMsg(c, "ParamsError")+err.Error())
+	var input clientcompat.TagInput
+	if !clientBody(c, &input, true) || !input.Name.Present || input.Color == nil {
+		clientFailure(c, clientcompat.ErrInput)
 		return
 	}
-	u := service.AllService.UserService.CurUser(c)
-	guid := c.Param("guid")
-	_, uid, cid, err := a.CheckGuid(u, guid)
-	if err != nil {
-		response.Error(c, response.TranslateMsg(c, err.Error()))
+	store, actor, ctx, cancel, ok := clientOperation(c)
+	if !ok {
 		return
 	}
-
-	//check privileges
-	if !service.AllService.AddressBookService.CheckUserWritePrivilege(u, uid, cid) {
-		response.Error(c, response.TranslateMsg(c, "NoAccess"))
-		return
-	}
-
-	tag := service.AllService.TagService.InfoByUserIdAndNameAndCollectionId(uid, t.Name, cid)
-	if tag == nil || tag.Id == 0 {
-		response.Error(c, response.TranslateMsg(c, "ItemNotFound"))
-		return
-	}
-	tag.Color = t.Color
-	err = service.AllService.TagService.Update(tag)
-	if err != nil {
-		response.Error(c, response.TranslateMsg(c, "OperationFailed")+err.Error())
+	defer cancel()
+	if err := store.ColorTag(ctx, actor, c.Param("guid"), clientcompat.Tag{Name: input.Name.Value, Color: *input.Color}); err != nil {
+		clientFailure(c, err)
 		return
 	}
 	c.String(http.StatusOK, "")
@@ -276,39 +215,19 @@ func (a *Ab) TagUpdate(c *gin.Context) {
 // @Router /ab/tag/{guid} [delete]
 // @Security BearerAuth
 func (a *Ab) TagDel(c *gin.Context) {
-
-	t := &[]string{}
-	err := c.ShouldBind(t)
-	if err != nil {
-		response.Error(c, response.TranslateMsg(c, "ParamsError")+err.Error())
+	var names []string
+	if !clientBody(c, &names, true) {
+		clientFailure(c, clientcompat.ErrInput)
 		return
 	}
-	//fmt.Println(t)
-	u := service.AllService.UserService.CurUser(c)
-	guid := c.Param("guid")
-	_, uid, cid, err := a.CheckGuid(u, guid)
-	if err != nil {
-		response.Error(c, response.TranslateMsg(c, err.Error()))
+	store, actor, ctx, cancel, ok := clientOperation(c)
+	if !ok {
 		return
 	}
-
-	//check privileges
-	if !service.AllService.AddressBookService.CheckUserFullControlPrivilege(u, uid, cid) {
-		response.Error(c, response.TranslateMsg(c, "NoAccess"))
+	defer cancel()
+	if err := store.DeleteTags(ctx, actor, c.Param("guid"), names); err != nil {
+		clientFailure(c, err)
 		return
-	}
-
-	for _, name := range *t {
-		tag := service.AllService.TagService.InfoByUserIdAndNameAndCollectionId(uid, name, cid)
-		if tag == nil || tag.Id == 0 {
-			response.Error(c, response.TranslateMsg(c, "ItemNotFound"))
-			return
-		}
-		err = service.AllService.TagService.Delete(tag)
-		if err != nil {
-			response.Error(c, response.TranslateMsg(c, "OperationFailed")+err.Error())
-			return
-		}
 	}
 	c.String(http.StatusOK, "")
 }
@@ -542,39 +461,20 @@ func (a *Ab) PeerAdd(c *gin.Context) {
 // @Router /ab/peer/add/{guid} [delete]
 // @Security BearerAuth
 func (a *Ab) PeerDel(c *gin.Context) {
-	f := &[]string{}
-	err := c.ShouldBind(f)
-	if err != nil {
-		response.Error(c, response.TranslateMsg(c, "ParamsError")+err.Error())
+	var ids []string
+	if !clientBody(c, &ids, true) {
+		clientFailure(c, clientcompat.ErrInput)
 		return
 	}
-	u := service.AllService.UserService.CurUser(c)
-	guid := c.Param("guid")
-	_, uid, cid, err := a.CheckGuid(u, guid)
-	if err != nil {
-		response.Error(c, response.TranslateMsg(c, err.Error()))
+	store, actor, ctx, cancel, ok := clientOperation(c)
+	if !ok {
 		return
 	}
-
-	//check privileges
-	if !service.AllService.AddressBookService.CheckUserFullControlPrivilege(u, uid, cid) {
-		response.Error(c, response.TranslateMsg(c, "NoAccess"))
+	defer cancel()
+	if err := store.DeletePeers(ctx, actor, c.Param("guid"), ids); err != nil {
+		clientFailure(c, err)
 		return
 	}
-
-	for _, id := range *f {
-		ab := service.AllService.AddressBookService.InfoByUserIdAndIdAndCid(uid, id, cid)
-		if ab == nil || ab.RowId == 0 {
-			response.Error(c, response.TranslateMsg(c, "ItemNotFound"))
-			return
-		}
-		err = service.AllService.AddressBookService.Delete(ab)
-		if err != nil {
-			response.Error(c, response.TranslateMsg(c, "OperationFailed")+err.Error())
-			return
-		}
-	}
-
 	c.String(http.StatusOK, "")
 }
 

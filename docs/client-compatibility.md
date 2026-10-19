@@ -1,5 +1,9 @@
 # 当前客户端 HTTP 契约与回归矩阵
 
+COMP08 后续切片已统一 tag add/rename/color/delete 与 peer delete 的共享写权限：复用 `current/scope` 的有效 MAX 规则、owner/collection 范围及请求 Context；批量删除同事务，缺项/写入/提交失败整体回滚，重复输入去重，历史重复物理行按精确资源范围全部删除。输入只接客户端字段，查询故障不再继续创建或泄露数据库错误。
+
+本切片已通过 Go1.23.10/CGO1 的全仓 race/vet/build、生产 router+SQLite 回归，以及独立 MySQL8.0.46/PostgreSQL18.4 的 MAX/错误 owner/批量回滚和真实 COMMIT 失败测试；确切提交 CI 见 Actions，不能从本地结果推定。没有进行这一切片的真实客户端操作。新增证据为 `http/shared_write_permissions_test.go`、`internal/clientcompat/writes_test.go` 和 `internal/integration/shared_write_test.go`。COMP07 标签引用联动、名称跨库精确比较和写入串行化在下一切片；下表及 1.5.0 文档中的 b59f7a5 静态 GAP 仍保留为修复前对照。
+
 本矩阵固定官方 RustDesk **1.5.0** 客户端 `fada664df7a294d1d1a9ca3e7cd3637069122f17`，API静态盘点固定 `b59f7a56cd9e90cf48c760d2aca808a7241582f0`（b59f7a5）。这是 **36项（含保留实现）的回归清单，不是36/36通过声明**。旧01–35稳定，36补Sciter `POST /api/ab/get`。机器元数据见 [client-contracts.json](../http/testdata/client-contracts.json)；字段、同路径变体、条件与固定源码链接见 [1.5.0 HTTP契约](client-api-1.5.0.md)。
 
 `route_present` 只表示生产路由存在；`covered_partial` 表示有下列指名测试但未覆盖该项全部业务；`deferred_missing` 表示客户端调用存在但API缺对应路由；`conditional_unreachable` 表示源码存在但当前调用条件不能同时成立。后续执行者必须补记真实测试名与数据库断言，不能用路由黄金文件代替协议与持久化测试。
