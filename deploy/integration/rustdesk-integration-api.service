@@ -1,0 +1,35 @@
+[Unit]
+Description=RustDesk integration API
+After=network-online.target postgresql.service rustdesk-integration-hbbs.service
+Wants=network-online.target
+Requires=postgresql.service
+
+[Service]
+Type=simple
+User=rustdesk-integration
+Group=rustdesk-integration
+WorkingDirectory=/var/lib/rustdesk-integration/api
+ExecStart=/opt/rustdesk-integration/api/current/rustdesk-api --config /etc/rustdesk-integration/config.yaml
+Restart=on-failure
+RestartSec=3
+TimeoutStopSec=20
+UMask=0077
+Environment=GOMEMLIMIT=128MiB
+MemoryMax=192M
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+ReadWritePaths=/var/lib/rustdesk-integration/api
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+# The first seed reports its generated administrator credential to the private
+# application log. Do not duplicate it into the shared system journal.
+StandardOutput=null
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

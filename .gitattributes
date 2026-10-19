@@ -1,2 +1,3 @@
 resources/web/**/* linguist-vendored
 resources/web2/**/* linguist-vendored
+deploy/** text eol=lf

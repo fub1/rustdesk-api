@@ -1,0 +1,35 @@
+[Unit]
+Description=RustDesk integration rendezvous server (official 1.1.16)
+Wants=network-online.target
+After=network-online.target
+StartLimitIntervalSec=60
+StartLimitBurst=10
+
+[Service]
+Type=exec
+User=rustdesk-integration
+Group=rustdesk-integration
+WorkingDirectory=/var/lib/rustdesk-integration/server
+ExecStartPre=/opt/rustdesk-integration/server/1.1.16/check-key-state.sh hbbs
+ExecStart=/opt/rustdesk-integration/server/1.1.16/hbbs -p 21116 -r rustdesk.viget.net:21117 -k _
+Environment=RUST_LOG=info
+UMask=0077
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=30
+LimitNOFILE=65536
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/rustdesk-integration/server
+CapabilityBoundingSet=
+AmbientCapabilities=
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictSUIDSGID=true
+LockPersonality=true
+SystemCallArchitectures=native
+
+[Install]
+WantedBy=multi-user.target
