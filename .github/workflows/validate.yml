@@ -12,7 +12,56 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  database-engines:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      CGO_ENABLED: '1'
+      GOTOOLCHAIN: local
+      GOFLAGS: -mod=readonly
+      RUSTDESK_TEST_DB_REQUIRED: '1'
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: integration-only-password
+          MYSQL_ROOT_HOST: '%'
+        ports:
+          - 3306/tcp
+        options: >-
+          --health-cmd "mysqladmin ping -h 127.0.0.1 --silent"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 30
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_PASSWORD: integration-only-password
+        ports:
+          - 5432/tcp
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    steps:
+      - name: Check out the tested revision
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Set up Go
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version: '1.23.10'
+          cache-dependency-path: go.sum
+      - name: Verify real migrations transactions and concurrency
+        env:
+          RUSTDESK_TEST_MYSQL_DSN: root:integration-only-password@tcp(127.0.0.1:${{ job.services.mysql.ports['3306'] }})/mysql?parseTime=true&loc=UTC&timeout=10s&readTimeout=30s&writeTimeout=30s
+          RUSTDESK_TEST_POSTGRES_DSN: postgres://postgres:integration-only-password@127.0.0.1:${{ job.services.postgres.ports['5432'] }}/postgres?sslmode=disable&connect_timeout=10
+        run: go test -race -count=1 -shuffle=on -timeout=12m -v ./internal/integration
+
   test-vet-build:
+    needs: database-engines
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     env:
