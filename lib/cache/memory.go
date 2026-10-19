@@ -14,6 +14,8 @@ type MemoryCache struct {
 	ll        *list.List    // 用于实现LRU
 	pq        PriorityQueue // 用于实现TTL
 	quit      chan struct{}
+	done      chan struct{}
+	closeOnce sync.Once
 	mu        sync.Mutex
 	maxBytes  int64
 	usedBytes int64
@@ -164,6 +166,7 @@ func (m *MemoryCache) startEviction() {
 	ticker := time.NewTicker(1 * time.Second)
 
 	go func() {
+		defer close(m.done)
 		for {
 			select {
 			case <-ticker.C:
@@ -178,7 +181,13 @@ func (m *MemoryCache) startEviction() {
 
 // stopEviction 停止定时清理
 func (m *MemoryCache) stopEviction() {
-	close(m.quit)
+	_ = m.Close()
+}
+
+func (m *MemoryCache) Close() error {
+	m.closeOnce.Do(func() { close(m.quit) })
+	<-m.done
+	return nil
 }
 
 // deleteItem removes a key from the cache.
@@ -206,6 +215,7 @@ func NewMemoryCache(maxBytes int64) *MemoryCache {
 		data:     make(map[string]*CacheItem),
 		pq:       make(PriorityQueue, 0),
 		quit:     make(chan struct{}),
+		done:     make(chan struct{}),
 		ll:       list.New(),
 		maxBytes: maxBytes,
 	}

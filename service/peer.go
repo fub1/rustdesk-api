@@ -1,68 +1,51 @@
 package service
 
 import (
-	"sync"
-	"time"
+	"context"
+	"errors"
+	"github.com/lejianwen/rustdesk-api/v2/internal/adapter/heartbeatstore"
+	"github.com/lejianwen/rustdesk-api/v2/internal/heartbeat"
+	log "github.com/sirupsen/logrus"
 
 	"github.com/lejianwen/rustdesk-api/v2/model"
 	"gorm.io/gorm"
 )
 
-type heartbeatEntry struct {
-	Time int64
-	Ip   string
-}
-
-var (
-	heartbeatMu     sync.Mutex
-	heartbeatBuffer = make(map[uint]*heartbeatEntry)
-)
-
-// StartHeartbeatFlusher 启动后台协程，定时将心跳缓冲批量刷入数据库
-func (ps *PeerService) StartHeartbeatFlusher() {
-	go func() {
-		ticker := time.NewTicker(10 * time.Second)
-		defer ticker.Stop()
-		for range ticker.C {
-			ps.flushHeartbeatBuffer()
-		}
-	}()
-}
-
-// BufferHeartbeat 心跳在线信息先写内存，后台每10s批量刷入数据库
-func (ps *PeerService) BufferHeartbeat(rowId uint, t int64, ip string) {
-	heartbeatMu.Lock()
-	defer heartbeatMu.Unlock()
-	heartbeatBuffer[rowId] = &heartbeatEntry{Time: t, Ip: ip}
-}
-
-func (ps *PeerService) flushHeartbeatBuffer() {
-	heartbeatMu.Lock()
-	if len(heartbeatBuffer) == 0 {
-		heartbeatMu.Unlock()
-		return
-	}
-	buf := heartbeatBuffer
-	heartbeatBuffer = make(map[uint]*heartbeatEntry)
-	heartbeatMu.Unlock()
-
-	tx := DB.Begin()
-	for rowId, e := range buf {
-		if err := tx.Model(&model.Peer{}).Where("row_id = ?", rowId).Updates(map[string]interface{}{
-			"last_online_time": e.Time,
-			"last_online_ip":   e.Ip,
-		}).Error; err != nil {
-			tx.Rollback()
-			Logger.Warnf("flush heartbeat buffer failed at peer %d: %v", rowId, err)
-			return
-		}
-	}
-	if err := tx.Commit().Error; err != nil {
-		Logger.Warnf("flush heartbeat buffer commit failed: %v", err)
-	}
-}
-
 type PeerService struct {
+	heartbeats   *heartbeat.Worker
+	heartbeatErr error
+}
+
+func NewPeerService(db *gorm.DB, logger *log.Logger) *PeerService {
+	flush, err := heartbeatstore.New(db)
+	if err != nil {
+		return &PeerService{heartbeatErr: err}
+	}
+	worker, err := heartbeat.New(flush, heartbeat.Options{Observe: func(pending int) {
+		if logger != nil {
+			logger.WithField("pending", pending).Warn("Heartbeat flush failed")
+		}
+	}})
+	return &PeerService{heartbeats: worker, heartbeatErr: err}
+}
+
+func (ps *PeerService) Start(ctx context.Context) error {
+	if ps == nil || ps.heartbeats == nil {
+		return errors.New("heartbeat worker unavailable")
+	}
+	return ps.heartbeats.Start(ctx)
+}
+func (ps *PeerService) Stop(ctx context.Context) error {
+	if ps == nil || ps.heartbeats == nil {
+		return nil
+	}
+	return ps.heartbeats.Stop(ctx)
+}
+func (ps *PeerService) BufferHeartbeat(rowId uint, t int64, ip string) error {
+	if ps == nil || ps.heartbeats == nil {
+		return errors.New("heartbeat worker unavailable")
+	}
+	return ps.heartbeats.Buffer(rowId, heartbeat.Entry{Time: t, IP: ip})
 }
 
 // FindById 根据id查找
@@ -228,8 +211,8 @@ func (ps *PeerService) ClearAlias(rowId uint) error {
 // UpdateAlias 更新设备别名（支持空值写入）
 func (ps *PeerService) UpdateAlias(rowId, abId uint, alias, username, hostname string) error {
 	return DB.Model(&model.Peer{}).Where("row_id = ?", rowId).Updates(map[string]interface{}{
-		"ab_id": abId,
-		"alias": alias,
+		"ab_id":    abId,
+		"alias":    alias,
 		"username": username,
 		"hostname": hostname,
 	}).Error
@@ -238,10 +221,10 @@ func (ps *PeerService) UpdateAlias(rowId, abId uint, alias, username, hostname s
 // UpdatePresets 仅更新预设地址簿字段（支持空值写入）
 func (ps *PeerService) UpdatePresets(rowId, abId uint, presetAbAlias, presetDevUsrName, presetDevName string, presetModifiedAt int64) error {
 	return DB.Model(&model.Peer{}).Where("row_id = ?", rowId).Updates(map[string]interface{}{
-		"preset_ab_id":  abId,
-		"preset_ab_alias": presetAbAlias,
+		"preset_ab_id":        abId,
+		"preset_ab_alias":     presetAbAlias,
 		"preset_dev_usr_name": presetDevUsrName,
-		"preset_dev_name": presetDevName,
-		"preset_modified_at": presetModifiedAt,
+		"preset_dev_name":     presetDevName,
+		"preset_modified_at":  presetModifiedAt,
 	}).Error
 }

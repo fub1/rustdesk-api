@@ -1,10 +1,15 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	"io"
+	"net"
 	"os"
+	"os/signal"
 	"strconv"
+	"syscall"
 	"time"
 
 	"github.com/go-redis/redis/v8"
@@ -14,6 +19,7 @@ import (
 	"github.com/lejianwen/rustdesk-api/v2/internal/app"
 	"github.com/lejianwen/rustdesk-api/v2/internal/database"
 	"github.com/lejianwen/rustdesk-api/v2/internal/httpapi"
+	"github.com/lejianwen/rustdesk-api/v2/internal/lifecycle"
 	"github.com/lejianwen/rustdesk-api/v2/lib/cache"
 	"github.com/lejianwen/rustdesk-api/v2/lib/jwt"
 	"github.com/lejianwen/rustdesk-api/v2/lib/lock"
@@ -44,7 +50,7 @@ var rootCmd = &cobra.Command{
 	Use:   "apimain",
 	Short: "RUSTDESK API SERVER",
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
-		return InitGlobal()
+		return initGlobal(cmd.Context(), cmd.Parent() == nil)
 	},
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if err := http.ConfigureFramework(global.Config.Gin.Mode); err != nil {
@@ -67,6 +73,7 @@ var rootCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
+		defer oidcClient.CloseIdleConnections()
 		oidcLogin, err := app.NewOIDC(global.DB, global.Config.App.TokenExpire, global.Jwt.Key, sessions, global.Config.Rustdesk.ApiServer, global.Config.App.WebSso, oidcClient)
 		if err != nil {
 			return err
@@ -85,9 +92,9 @@ var rootCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		global.Logger.Info("API SERVER START")
-		service.AllService.PeerService.StartHeartbeatFlusher()
-		return http.Run(handler, global.Config.Gin.ApiAddr)
+		return http.RunContext(cmd.Context(), handler, global.Config.Gin.ApiAddr, []lifecycle.Worker{service.AllService.PeerService}, lifecycle.Options{
+			OnReady: func(net.Addr) { global.Logger.Info("API SERVER START") },
+		})
 	},
 }
 
@@ -146,69 +153,96 @@ func init() {
 	rootCmd.PersistentFlags().StringVarP(&global.ConfigPath, "config", "c", "./conf/config.yaml", "choose config file")
 	rootCmd.AddCommand(resetPwdCmd, resetUserPwdCmd)
 }
+
+var logFile io.Closer
+
+func execute(ctx context.Context) (err error) {
+	defer func() {
+		if !errors.Is(err, lifecycle.ErrIncompleteShutdown) {
+			err = errors.Join(err, closeConnections())
+		}
+	}()
+	return rootCmd.ExecuteContext(ctx)
+}
+
+func closeConnections() error {
+	var err error
+	if closer, ok := global.Cache.(io.Closer); ok {
+		err = errors.Join(err, closer.Close())
+	}
+	global.Cache = nil
+	if global.Redis != nil {
+		err = errors.Join(err, global.Redis.Close())
+		global.Redis = nil
+	}
+	if global.DB != nil {
+		pool, e := global.DB.DB()
+		if e != nil {
+			err = errors.Join(err, e)
+		} else {
+			err = errors.Join(err, pool.Close())
+		}
+		global.DB = nil
+	}
+	return err
+}
+
 func main() {
-	if err := rootCmd.Execute(); err != nil {
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	err := execute(ctx)
+	if err != nil {
 		if global.Logger != nil {
 			global.Logger.Error(err)
 		} else {
 			fmt.Fprintln(os.Stderr, err)
 		}
+	}
+	if logFile != nil && !errors.Is(err, lifecycle.ErrIncompleteShutdown) {
+		closeErr := logFile.Close()
+		logFile = nil
+		if closeErr != nil {
+			fmt.Fprintln(os.Stderr, "close application log failed")
+			err = errors.Join(err, closeErr)
+		}
+	}
+	if err != nil {
 		os.Exit(1)
 	}
 }
 
 func InitGlobal() (err error) {
+	return initGlobal(context.Background(), true)
+}
+
+func initGlobal(ctx context.Context, server bool) (err error) {
 	// Failed startup must release opened connections and never reach HTTP or
 	// background tasks. Workers are initialized only after migrations succeed.
 	defer func() {
 		if err == nil {
 			return
 		}
-		if global.DB != nil {
-			if sqlDB, dbErr := global.DB.DB(); dbErr != nil {
-				err = errors.Join(err, dbErr)
-			} else {
-				err = errors.Join(err, sqlDB.Close())
-			}
-			global.DB = nil
-		}
-		if global.Redis != nil {
-			err = errors.Join(err, global.Redis.Close())
-			global.Redis = nil
-		}
+		err = errors.Join(err, closeConnections())
 	}()
 
 	//配置解析
-	global.Viper = config.Init(&global.Config, global.ConfigPath)
+	global.Viper, err = config.Load(&global.Config, global.ConfigPath)
+	if err != nil {
+		return err
+	}
 
 	//日志
-	global.Logger = logger.New(&logger.Config{
+	global.Logger, logFile, err = logger.Open(&logger.Config{
 		Path:         global.Config.Logger.Path,
 		Level:        global.Config.Logger.Level,
 		ReportCaller: global.Config.Logger.ReportCaller,
 	})
+	if err != nil {
+		return err
+	}
 
 	global.InitI18n()
 
-	//redis
-	global.Redis = redis.NewClient(&redis.Options{
-		Addr:     global.Config.Redis.Addr,
-		Password: global.Config.Redis.Password,
-		DB:       global.Config.Redis.Db,
-	})
-
-	//cache
-	if global.Config.Cache.Type == cache.TypeFile {
-		fc := cache.NewFileCache()
-		fc.SetDir(global.Config.Cache.FileDir)
-		global.Cache = fc
-	} else if global.Config.Cache.Type == cache.TypeRedis {
-		global.Cache = cache.NewRedis(&redis.Options{
-			Addr:     global.Config.Cache.RedisAddr,
-			Password: global.Config.Cache.RedisPwd,
-			DB:       global.Config.Cache.RedisDb,
-		})
-	}
 	//gorm
 	if global.Config.Gorm.Type == config.TypeMysql {
 
@@ -274,8 +308,26 @@ func InitGlobal() (err error) {
 	//service
 	service.New(&global.Config, global.DB, global.Logger, global.Jwt, global.Lock)
 
-	if err := DatabaseAutoUpdate(); err != nil {
+	if err := MigrateContext(ctx, DatabaseVersion); err != nil {
 		return err
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if server {
+		global.Redis = redis.NewClient(&redis.Options{Addr: global.Config.Redis.Addr, Password: global.Config.Redis.Password, DB: global.Config.Redis.Db})
+		switch global.Config.Cache.Type {
+		case "", cache.TypeFile:
+			fc := cache.NewFileCache()
+			fc.SetDir(global.Config.Cache.FileDir)
+			global.Cache = fc
+		case cache.TypeRedis:
+			global.Cache = cache.NewRedis(&redis.Options{Addr: global.Config.Cache.RedisAddr, Password: global.Config.Cache.RedisPwd, DB: global.Config.Cache.RedisDb})
+		case cache.TypeMem:
+			global.Cache = cache.NewMemoryCache(0)
+		default:
+			return errors.New("unsupported cache type")
+		}
 	}
 
 	return nil
@@ -286,8 +338,15 @@ func DatabaseAutoUpdate() error {
 }
 
 func Migrate(version uint) error {
+	return MigrateContext(context.Background(), version)
+}
+
+func MigrateContext(ctx context.Context, version uint) error {
+	if global.DB == nil {
+		return errors.New("migration database is required")
+	}
 	var initialPassword string
-	err := database.Update(global.DB, version, func(tx *gorm.DB) error {
+	err := database.Update(global.DB.WithContext(ctx), version, func(tx *gorm.DB) error {
 		localizer := global.Localizer("")
 		defaultGroup, err := localizer.LocalizeMessage(&i18n.Message{ID: "DefaultGroup"})
 		if err != nil {

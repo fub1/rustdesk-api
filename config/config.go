@@ -61,10 +61,18 @@ func (a *Admin) Init() {
 
 // Init 初始化配置
 func Init(rowVal *Config, path string) *viper.Viper {
+	v, err := Load(rowVal, path)
+	if err != nil {
+		panic(err)
+	}
+	return v
+}
+
+func Load(rowVal *Config, path string) (*viper.Viper, error) {
 	if path == "" {
 		path = DefaultConfig
 	}
-	v := viper.GetViper()
+	v := viper.New()
 	v.AutomaticEnv()
 	v.SetEnvKeyReplacer(strings.NewReplacer(".", "_", "-", "_"))
 	v.SetEnvPrefix("RUSTDESK_API")
@@ -72,7 +80,7 @@ func Init(rowVal *Config, path string) *viper.Viper {
 	v.SetConfigType("yaml")
 	err := v.ReadInConfig()
 	if err != nil {
-		panic(fmt.Errorf("Fatal error config file: %s \n", err))
+		return nil, fmt.Errorf("load configuration: %w", err)
 	}
 	/*
 		v.WatchConfig()
@@ -90,11 +98,11 @@ func Init(rowVal *Config, path string) *viper.Viper {
 			})
 	*/
 	if err := v.Unmarshal(rowVal); err != nil {
-		panic(fmt.Errorf("Fatal error config: %s \n", err))
+		return nil, fmt.Errorf("decode configuration: %w", err)
 	}
 	rowVal.Rustdesk.LoadKeyFile()
 	rowVal.Admin.Init()
-	return v
+	return v, nil
 }
 
 // ReadEnv 读取环境变量

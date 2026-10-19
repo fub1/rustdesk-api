@@ -19,12 +19,13 @@ import (
 
 func OIDCHTTPClient(proxyEnabled bool, proxyAddress string) (*http.Client, error) {
 	client := &http.Client{Timeout: 10 * time.Second}
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	client.Transport = transport
 	if proxyEnabled {
 		proxy, err := url.Parse(proxyAddress)
 		if err != nil || proxy.Hostname() == "" || proxy.Scheme != "http" && proxy.Scheme != "https" {
 			return nil, errors.New("invalid OIDC proxy configuration")
 		}
-		transport := http.DefaultTransport.(*http.Transport).Clone()
 		transport.Proxy = http.ProxyURL(proxy)
 		client.Transport = transport
 	}

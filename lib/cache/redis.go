@@ -47,3 +47,10 @@ func NewRedis(conf *redis.Options) *RedisCache {
 	cache := RedisCacheInit(conf)
 	return cache
 }
+
+func (c *RedisCache) Close() error {
+	if c == nil || c.rdb == nil {
+		return nil
+	}
+	return c.rdb.Close()
+}

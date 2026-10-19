@@ -11,12 +11,13 @@ migrations. Only the server command creates its login limiter. `http.NewHandler`
 borrows the initialized resources and returns a real `*gin.Engine` without
 listening, migrating, connecting to databases/Redis, doing OIDC discovery or
 starting workers. A maintenance command does not start the login limiter or
-heartbeat flusher. The flusher starts only after handler construction succeeds.
+heartbeat flusher. The flusher starts only after handler construction and
+listener binding succeed.
 
-`http.Run` performs the listening step and returns its error to Cobra, which
-causes a nonzero process exit. Unix retains the upstream endless listener;
-Windows retains Gin's listener. Full bounded shutdown, heartbeat flushing and
-resource ownership are the later ARCH 06 work, not claimed by this slice.
+`http.RunContext` performs the listening and owned-worker steps, returning errors
+to Cobra. ARCH 06 now uses a standard HTTP server on both Unix and Windows,
+with explicit request drain, worker stop/join and resource release. Its forced
+timeout behavior and platform limitations are in [lifecycle.md](lifecycle.md).
 
 Gin process mode is configured at bootstrap. Handler construction leaves mode
 and default writers unchanged. Panic recovery logs only static metadata through
@@ -191,11 +192,23 @@ production IdP registration/deployment and real Flutter/browser acceptance are
 still required. Real TLS protocol + real SQLite + production router tests do
 not establish those external deployment facts or multi-instance support.
 
+## ARCH 06: owned serving and shutdown
+
+`internal/lifecycle` binds before starting workers, reports startup failures,
+drains in-flight requests and stops workers within a shared shutdown budget.
+`internal/heartbeat` owns latest-observation buffering and retries failed atomic
+batches through a context-aware GORM adapter. The command closes resources only
+after successful drain; incomplete forced shutdown exits without racing cleanup
+against residual work. The operation-log write is bounded and tracked by its
+HTTP request rather than a detached goroutine. Maintenance commands create no
+server/cache workers. See [lifecycle.md](lifecycle.md) for verified behavior and
+the distinction between graceful completion and a forced process exit.
+
 ## Next slices
 
 The startup migration failure portion is documented in
-[migration-recovery.md](migration-recovery.md). ARCH 06 completes lifecycle
-management, and ARCH 07 handles the first client compatibility fixes.
+[migration-recovery.md](migration-recovery.md). ARCH 07 handles the first client
+compatibility fixes; real client and database validation remain separate gates.
 
 Our API will act as a standards-compliant OIDC relying party adapting to our
 OIDC provider's requirements (including public client, no secret and S256).

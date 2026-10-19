@@ -1,6 +1,7 @@
 package logger
 
 import (
+	"fmt"
 	nested "github.com/antonfisher/nested-logrus-formatter"
 	log "github.com/sirupsen/logrus"
 	"io"
@@ -19,7 +20,16 @@ type Config struct {
 }
 
 func New(c *Config) *log.Logger {
-	log.SetFormatter(&nested.Formatter{
+	l, _, err := Open(c)
+	if err != nil {
+		panic(err)
+	}
+	return l
+}
+
+func Open(c *Config) (*log.Logger, io.Closer, error) {
+	l := log.New()
+	l.SetFormatter(&nested.Formatter{
 		// HideKeys:        true,
 		TimestampFormat: "[2006-01-02 15:04:05]",
 		NoColors:        true,
@@ -30,25 +40,27 @@ func New(c *Config) *log.Logger {
 	// 日志文件
 	f := c.Path
 	var write io.Writer
+	var closer io.Closer
 	if f != "" {
 		fwriter, err := os.OpenFile(f, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0644)
 		if err != nil {
-			panic("open log file fail!")
+			return nil, nil, fmt.Errorf("open log file: %w", err)
 		}
 		write = io.MultiWriter(fwriter, os.Stdout)
+		closer = fwriter
 	} else {
 		write = os.Stdout
 	}
 
-	log.SetOutput(write)
+	l.SetOutput(write)
 
-	log.SetReportCaller(c.ReportCaller)
+	l.SetReportCaller(c.ReportCaller)
 
 	level, err2 := log.ParseLevel(c.Level)
 	if err2 != nil {
 		level = log.DebugLevel
 	}
-	log.SetLevel(level)
+	l.SetLevel(level)
 
-	return log.StandardLogger()
+	return l, closer, nil
 }

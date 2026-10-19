@@ -2,9 +2,11 @@ package middleware
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"io"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"github.com/gin-gonic/gin"
@@ -29,10 +31,19 @@ var skipOpLogPaths = map[string]bool{
 // 必须在 BackendUserAuth 之后使用，以便获取当前用户信息
 func OperationLog() gin.HandlerFunc {
 	writer := service.AllService.OperationLogService
-	return operationLog(writer.Create)
+	logger := service.Logger
+	return operationLogContext(writer.CreateContext, func() {
+		if logger != nil {
+			logger.Warn("Operation log write failed")
+		}
+	})
 }
 
 func operationLog(write func(*model.OperationLog) error) gin.HandlerFunc {
+	return operationLogContext(func(_ context.Context, record *model.OperationLog) error { return write(record) }, nil)
+}
+
+func operationLogContext(write func(context.Context, *model.OperationLog) error, observeFailure func()) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		// 只记录 POST 请求
 		if c.Request.Method != "POST" {
@@ -65,7 +76,8 @@ func operationLog(write func(*model.OperationLog) error) gin.HandlerFunc {
 		// 执行后续处理
 		c.Next()
 
-		// 异步写入日志，不阻塞响应
+		// The bounded write remains inside the tracked HTTP handler; shutdown
+		// drains it with other requests instead of leaving a detached goroutine.
 		value, _ := c.Get("curUser")
 		user, ok := value.(*model.User)
 		if !ok || user == nil || user.Id == 0 {
@@ -88,9 +100,11 @@ func operationLog(write func(*model.OperationLog) error) gin.HandlerFunc {
 			UserId: user.Id, Username: user.Username, Op: op, Resource: resource,
 			Detail: operationDetail(path, bodyStr, extra), Ip: ip, Path: path,
 		}
-		go func() {
-			_ = write(record)
-		}()
+		ctx, cancel := context.WithTimeout(context.WithoutCancel(c.Request.Context()), 5*time.Second)
+		defer cancel()
+		if err := write(ctx, record); err != nil && observeFailure != nil {
+			observeFailure()
+		}
 	}
 }
 
