@@ -1,5 +1,7 @@
 # RustDesk 1.5.0 HTTP API 契约基线
 
+后续 COMP10 实现：sysinfo 用户名省略/空串均清旧值，其他基础字段缺失保留/空串写入，显式无效值拒绝；已执行的旧预设副写纳入同事务。原文成功 ACK 只在提交后发送；预设归属/准入及未支持字段仍归 PRE01/02。证据与真实客户端未验收边界见[当前兼容矩阵](client-compatibility.md)。以下固定 API 静态基线描述继续保留为修复前对照。
+
 客户端官方 **1.5.0**，固定 `fada664df7a294d1d1a9ca3e7cd3637069122f17`；hbb_common固定 `229b904508364c8997aad0fb5af57effac859f60`。API静态对照基线 `b59f7a56cd9e90cf48c760d2aca808a7241582f0`（b59f7a5）。只记录客户端 HTTP 契约。
 
 后续实现：COMP09 已新增受鉴权的 `POST /api/ab/get`，读取复用 `GET /api/ab`；生产 HTTP/SQLite 的范围、响应、故障及取消回归见 `http/sciter_addressbook_get_test.go`。当前注册29项、缺失7项；下面 b59f7a5 对照保留修复前的28/8计数。COMP09 写入切片也兼容初始/重置文档省略颜色：保留仍存标签颜色，新标签默认0，显式无效值拒绝。HTTP/SQLite 与 MySQL/PostgreSQL 事务回归见兼容矩阵；真实客户端新增验收尚未完成。

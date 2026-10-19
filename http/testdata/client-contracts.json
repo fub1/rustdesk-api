@@ -496,9 +496,23 @@
       "request_shape": "device_inventory_and_optional_presets",
       "response_shape": "raw_SYSINFO_UPDATED",
       "route_status": "route_present",
-      "coverage": "not_yet_business_tested",
-      "existing_partial_tests": [],
-      "fixture_status": "planned_not_executed",
+      "coverage": "covered_partial",
+      "existing_partial_tests": [
+        "http/sysinfo_compat_test.go:TestSysInfoUsernameSnapshotAndExplicitEmptyFields",
+        "http/sysinfo_compat_test.go:TestSysInfoPartialReportPreservesOtherFieldsAndManagementColumns",
+        "http/sysinfo_compat_test.go:TestSysInfoRejectsNullFieldsAndInvalidEnvelope",
+        "http/sysinfo_compat_test.go:TestSysInfoDatabaseErrorsAndCancellationFailClosed",
+        "http/sysinfo_compat_test.go:TestSysInfoNewPeerKeepsExistingLoginLogOwnerAssociation",
+        "http/sysinfo_compat_test.go:TestSysInfoLegacyPresetBehaviorIsIsolatedFromBasicFields",
+        "http/sysinfo_compat_test.go:TestSysInfoEveryExecutedLegacyPresetFailureRollsBack",
+        "http/sysinfo_compat_test.go:TestSysInfoCommitFailureDoesNotAcknowledgeOrKeepAnyWrites",
+        "internal/integration/sysinfo_test.go:TestClientSysinfoSnapshotsRealEngines",
+        "internal/integration/sysinfo_test.go:TestClientSysinfoIndependentPoolsPreservePartialFields",
+        "internal/integration/sysinfo_test.go:TestClientSysinfoActualCommitRollbackAndRetry",
+        "http/sysinfo_compat_test.go:TestSysInfoCancellationAfterWriteRollsBackBeforeACK",
+        "internal/clientsysinfo/store_test.go:TestSysInfoStoreInstancesNeverFollowLegacyGlobalDatabase"
+      ],
+      "fixture_status": "local_production_http_and_real_engine_regressions_not_real_client",
       "client_variants": [
         {
           "id": "sysinfo",
@@ -541,7 +555,14 @@
       },
       "contract_document": "docs/client-api-1.5.0.md#contract-08",
       "route_registered_at_inventory_revision": true,
-      "field_freeze_status": "source_summary_not_complete_JSON_Schema"
+      "field_freeze_status": "source_summary_not_complete_JSON_Schema",
+      "verification_level": "production_router_http_sqlite_and_real_engine_store",
+      "implementation_update": {
+        "task": "COMP10",
+        "semantics": "username omission is empty snapshot; other basic fields preserve omission and write explicit empty; managed columns excluded; executed legacy preset operations share transaction and checked errors",
+        "scope": "anonymous reports remain metadata; legacy owner=1/admission/unsupported presets unresolved PRE01/02",
+        "real_client": "not run for this slice"
+      }
     },
     {
       "id": "09",
@@ -2576,6 +2597,19 @@
       "local_targeted_checks": "HTTP/SQLite initialization/reset/metadata/extension/scope/input and reached COMMIT rollback; MySQL8.0.46/PostgreSQL18.4 exact names, omission/reset/scope and actual COMMIT failure/retry passed",
       "ci": "exact commit Actions is authoritative",
       "real_client": "not run for this slice"
+    },
+    {
+      "task": "COMP10",
+      "source_inventory_unchanged": true,
+      "business_scope": "existing sysinfo snapshot mapping, explicit Store DB/Context, executed legacy side effects atomic; no new schema/route/binding policy",
+      "local_targeted_checks": "production HTTP/SQLite and real MySQL/PostgreSQL snapshot/metadata/concurrent partial updates/actual COMMIT rollback-retry",
+      "ci": "exact commit Actions is authoritative",
+      "real_client": "no new sysinfo user-switch report acceptance",
+      "limits": [
+        "PRE01/02 preset admission, owner=1 and unsupported fields still unresolved",
+        "HTTP boundary retains existing global service/config composition",
+        "device id/uuid report fields are not cryptographic identity proof"
+      ]
     }
   ]
 }

@@ -1,13 +1,16 @@
 package api
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"github.com/gin-gonic/gin"
-	"github.com/gin-gonic/gin/binding"
-	requstform "github.com/lejianwen/rustdesk-api/v2/http/request/api"
-	"github.com/lejianwen/rustdesk-api/v2/http/response"
+	"github.com/lejianwen/rustdesk-api/v2/global"
+	"github.com/lejianwen/rustdesk-api/v2/internal/clientcompat"
+	"github.com/lejianwen/rustdesk-api/v2/internal/clientsysinfo"
 	"github.com/lejianwen/rustdesk-api/v2/service"
 	"net/http"
+	"time"
 )
 
 type Peer struct {
@@ -19,46 +22,34 @@ type Peer struct {
 // @Description 提交系统信息
 // @Accept  json
 // @Produce  json
-// @Param body body requstform.PeerForm true "系统信息表单"
+// @Param body body clientsysinfo.Input true "系统信息表单"
 // @Success 200 {string} string "SYSINFO_UPDATED,ID_NOT_FOUND"
 // @Failure 500 {object} response.ErrorResponse
 // @Router /sysinfo [post]
 func (p *Peer) SysInfo(c *gin.Context) {
-	f := &requstform.PeerForm{}
-	err := c.ShouldBindBodyWith(f, binding.JSON)
-	if err != nil {
-		response.Error(c, response.TranslateMsg(c, "ParamsError")+err.Error())
+	var input clientsysinfo.Input
+	if !clientBody(c, &input, false) {
+		clientFailure(c, clientcompat.ErrInput)
 		return
 	}
-	pe := service.AllService.PeerService.FindById(f.Id)
-	if pe.RowId == 0 {
-		pe = f.ToPeer()
-		pe.UserId = service.AllService.UserService.FindLatestUserIdFromLoginLogByUuid(pe.Uuid, pe.Id)
-		pe.Alias = f.PresetAddressBookAlias
-		err = service.AllService.PeerService.Create(pe)
-		if err != nil {
-			response.Error(c, response.TranslateMsg(c, "OperationFailed")+err.Error())
-			return
-		}
-	} else {
-		fpe := f.ToPeer()
-		fpe.RowId = pe.RowId
-		fpe.UserId = pe.UserId
-		fpe.Alias = f.PresetAddressBookAlias
-		err = service.AllService.PeerService.Update(fpe)
-		if err != nil {
-			response.Error(c, response.TranslateMsg(c, "OperationFailed")+err.Error())
-			return
-		}
+	store, err := clientsysinfo.New(service.DB)
+	if err != nil {
+		clientFailure(c, err)
+		return
 	}
-	// 根据客户端上报的预设值自动将设备添加到地址簿
-	service.AllService.AddressBookService.ApplyPresetToAddressBook(
-		pe.RowId, f.Id, f.Os, f.PresetAddressBookName, f.PresetAddressBookAlias, f.Hostname, f.Username,
-	)
-
-	//SYSINFO_UPDATED 上传成功
-	//ID_NOT_FOUND 下次心跳会上传
-	//直接响应文本
+	budget := global.Config.App.AuthTimeout
+	if budget <= 0 {
+		budget = 5 * time.Second
+	}
+	ctx, cancel := context.WithTimeout(c.Request.Context(), budget)
+	defer cancel()
+	if err := store.Report(ctx, input); err != nil {
+		if errors.Is(err, clientsysinfo.ErrInput) {
+			err = clientcompat.ErrInput
+		}
+		clientFailure(c, err)
+		return
+	}
 	c.String(http.StatusOK, "SYSINFO_UPDATED")
 }
 

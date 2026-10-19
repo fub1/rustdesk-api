@@ -1,5 +1,11 @@
 # 当前客户端 HTTP 契约与回归矩阵
 
+COMP10 将匿名 sysinfo 基础写入收敛到 `internal/clientsysinfo` 的显式 DB/Context 事务和独立 DTO：固定1.5.0 在无活动用户时省略 username，因此省略或显式空串均清空旧用户名；cpu/hostname/memory/os/uuid/version 缺失保留、显式空串写入，已识别字段 null 拒绝400。id 必须为非空字符串，未知字段不进入持久化白名单。普通基础报告保留 owner/group/alias/ab/preset/在线记录等管理列，不改变其他调用方的通用 PeerService.Update。
+
+现有两个预设选项通过独立 legacy helper 保持原行为，已执行的基础写入、预设别名/地址簿写入及清理在同一事务内检查错误；只有提交成功才返回原文 `SYSINFO_UPDATED`。新建设备沿用 uuid+device id 最新登录日志关联；查询故障不再被当作不存在。预设 owner=1、准入和未支持的选项仍是 PRE01/02 的未完成范围，目标簿不存在继续兼容为无操作，不代表预设已生效。设备字符串仍是匿名报告资料，不是身份认证证明，未新增 UUID 绑定准入政策。
+
+`http/sysinfo_compat_test.go` 验证真实生产路由的无 Bearer 上报、空值/白名单、错误与回滚；`internal/integration/sysinfo_test.go` 验证 MySQL/PostgreSQL 的快照、部分字段并发与真实 COMMIT 回滚/重试。Store 的依赖已固定在实例内，HTTP 边界仍使用现有 service.DB/config 装配，不声称整个 legacy HTTP 已完成多实例解耦。本切片没有真实客户端用户名切换/退出后的重报验收，也没有新增预设业务准入验收。
+
 COMP09 读取切片新增受客户端会话校验的 `POST /api/ab/get`，复用 `GET /api/ab` 的当前用户个人簿读取与失败处理。生产 HTTP/SQLite 回归覆盖双入口响应一致、双层 JSON 字符串、空数组、个人范围、匿名拒绝、数据库故障和取消。本切片未进行真实 Sciter 进程或标准 Flutter GUI 的新增验收；整本写入的后续兼容见下段。
 
 COMP09 写入切片允许 Sciter 初始/重置文档真正省略 `tag_colors`：`tags`/`peers` 仍必须是数组；按提交的 tags 事实重建个人簿，保留仍存在标签的颜色，新标签默认0，删掉的标签不会因旧颜色复活。显式 `"{}"`/部分颜色对象继续保留缺少键的既有颜色；显式0覆盖为0。字段 null/空串/非字符串、字符串内无效对象及颜色成员 null/非整数均拒绝400。没有新增字段或迁移。
@@ -27,7 +33,7 @@ COMP08 切片已通过 Go1.23.10/CGO1 的全仓 race/vet/build、生产 router+S
 | 03–04 | currentUser/logout | 顶层用户、401 清账号；撤销 DB token；退出不依赖客户端收到 ACK | 已有部分真实路由+SQLite 回归 |
 | 05–06 | OIDC auth/auth-query | code/url、固定 pending 原文、native envelope；路由/设备隔离；真实 TLS IdP→身份→本地 session 事务 | 已有部分真实路由+SQLite+TLS 回归 |
 | 07 | heartbeat | 匿名设备上报形状；相同版本 `{}`；修改、删除、默认切换后的 config_options；UUID 边界；失败不当成功 | COMP05 已实现，核心与生产 HTTP+SQLite 定向 race 通过；未运行真实 Rust 客户端 |
-| 08 | sysinfo | 必须原文 `SYSINFO_UPDATED`；新增/更新回读；上报不能改管理员绑定与共享授权 | 路由存在，待真实 DB 回归 |
+| 08 | sysinfo | 必须原文 `SYSINFO_UPDATED`；新增/更新回读；上报不能改管理员绑定与共享授权 | COMP10 基础快照/空值与事务已补 HTTP/实库回归；预设业务和真实客户端验收仍待完成 |
 | 09 | sysinfo_ver | 原文版本文本；直接 HTTP smoke 可测，但不可当作固定客户端正常可达闭环 | 条件不可达 |
 | 10–12 | switch-grant / devices/deploy / devices/cli | 保留明确不支持状态；后续各自验证签名、操作 token、result 枚举或空文本 | 缺失，后续阶段 |
 | 13–14 | settings/personal | 空 body 可用；settings 对象、personal guid；不存在接口时 404 降级 | 路由保留；本轮没有指名这两个入口的新增 HTTP 业务测试 |
