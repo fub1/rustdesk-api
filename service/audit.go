@@ -1,13 +1,42 @@
 package service
 
 import (
+	"context"
 	"github.com/lejianwen/rustdesk-api/v2/config"
+	"github.com/lejianwen/rustdesk-api/v2/internal/clientaudit"
 	"github.com/lejianwen/rustdesk-api/v2/model"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
 
 type AuditService struct {
+	writer    *clientaudit.Service
+	writerErr error
+}
+
+func NewAuditService(db *gorm.DB) *AuditService {
+	writer, err := clientaudit.New(db)
+	return &AuditService{writer: writer, writerErr: err}
+}
+
+func (as *AuditService) ReceiveConn(ctx context.Context, event *model.AuditConn) error {
+	if as == nil || as.writer == nil || as.writerErr != nil {
+		return clientaudit.ErrUnavailable
+	}
+	if event == nil {
+		return clientaudit.ErrInvalidInput
+	}
+	return as.writer.Conn(ctx, *event)
+}
+
+func (as *AuditService) ReceiveFile(ctx context.Context, event *model.AuditFile, source ...clientaudit.FileSource) error {
+	if as == nil || as.writer == nil || as.writerErr != nil {
+		return clientaudit.ErrUnavailable
+	}
+	if event == nil {
+		return clientaudit.ErrInvalidInput
+	}
+	return as.writer.File(ctx, *event, source...)
 }
 
 func (as *AuditService) AuditConnList(page, pageSize uint, where func(tx *gorm.DB)) (res *model.AuditConnList) {

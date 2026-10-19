@@ -9,18 +9,20 @@ import (
 )
 
 type AuditConnForm struct {
-	Action       string   `json:"action"`
-	ConnId       int64    `json:"conn_id"`
-	Id           string   `json:"id"`
-	Peer         []string `json:"peer"`
-	Ip           string   `json:"ip"`
-	SessionId    float64  `json:"session_id"`
-	Type         int      `json:"type"`
-	Uuid         string   `json:"uuid"`
-	Nonce        string   `json:"nonce"`
-	ConnAuditRef string   `json:"conn_audit_ref"`
-	PrimaryAuth  int      `json:"primary_auth"`
-	TwoFactor    int      `json:"two_factor"`
+	Action    string   `json:"action"`
+	ConnId    int64    `json:"conn_id"`
+	Id        string   `json:"id"`
+	Peer      []string `json:"peer"`
+	Ip        string   `json:"ip"`
+	SessionId uint64   `json:"session_id"`
+	// The legacy note-only shape is not a controlled-side audit event.
+	Note         *string `json:"note,omitempty"`
+	Type         int     `json:"type"`
+	Uuid         string  `json:"uuid"`
+	Nonce        string  `json:"nonce"`
+	ConnAuditRef string  `json:"conn_audit_ref"`
+	PrimaryAuth  int     `json:"primary_auth"`
+	TwoFactor    int     `json:"two_factor"`
 }
 
 func (a *AuditConnForm) ToAuditConn() *model.AuditConn {
@@ -32,7 +34,7 @@ func (a *AuditConnForm) ToAuditConn() *model.AuditConn {
 			fn = a.Peer[1]
 		}
 	}
-	ssid := strconv.FormatFloat(a.SessionId, 'f', -1, 64)
+	ssid := strconv.FormatUint(a.SessionId, 10)
 	return &model.AuditConn{
 		Action:       a.Action,
 		ConnId:       a.ConnId,
@@ -101,7 +103,9 @@ func (a *AuditFileForm) fillFileNames() (info string, named bool) {
 		return a.Info, false
 	}
 	x := map[string]interface{}{}
-	if err := json.Unmarshal([]byte(a.Info), &x); err != nil {
+	decoder := json.NewDecoder(strings.NewReader(a.Info))
+	decoder.UseNumber()
+	if err := decoder.Decode(&x); err != nil {
 		return a.Info, false
 	}
 	files, ok := x["files"].([]interface{})

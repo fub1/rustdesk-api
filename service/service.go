@@ -70,6 +70,7 @@ func New(c *config.Config, g *gorm.DB, l *log.Logger, j *jwt.Jwt, lo lock.Locker
 	AllService.UserService = &UserService{db: g, issuer: issuer, issuanceErr: err, authTimeout: budget}
 	AllService.PeerService = NewPeerService(g, l)
 	AllService.OperationLogService = NewOperationLogService(g)
+	AllService.AuditService = NewAuditService(g)
 	return AllService
 }
 

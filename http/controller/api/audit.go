@@ -1,110 +1,105 @@
 package api
 
 import (
+	"context"
+	"encoding/json"
+	"errors"
+	"io"
+	"net/http"
+	"time"
+
 	"github.com/gin-gonic/gin"
-	"github.com/gin-gonic/gin/binding"
 	"github.com/lejianwen/rustdesk-api/v2/global"
 	request "github.com/lejianwen/rustdesk-api/v2/http/request/api"
 	"github.com/lejianwen/rustdesk-api/v2/http/response"
-	"github.com/lejianwen/rustdesk-api/v2/model"
+	"github.com/lejianwen/rustdesk-api/v2/internal/clientaudit"
 	"github.com/lejianwen/rustdesk-api/v2/service"
-	"net/http"
-	"time"
 )
 
-type Audit struct {
-}
+type Audit struct{}
 
-// auditStored answers a post that got stored. A 2xx body that is not empty reads
-// to the client as an unknown outcome, and it retries -- every retry that the
-// nonce check below does not catch lands as one more record. The server the
-// clients were written against answers with an empty body, so do the same.
-func auditStored(c *gin.Context) {
-	c.Status(http.StatusOK)
-}
+// A successful audit post has no response body. Only a confirmed transaction
+// or a known duplicate can acknowledge storage.
+func auditStored(c *gin.Context) { c.Status(http.StatusOK) }
 
-// auditFailed keeps a rejected post retryable: the client retries a 2xx whose
-// body is {"error": ...}. Nothing was stored and no nonce was recorded, so the
-// next attempt stores the record instead of it being lost.
 func auditFailed(c *gin.Context, err error) {
-	global.Logger.Warn("audit", err)
-	c.JSON(http.StatusOK, response.ErrorResponse{Error: err.Error()})
+	status, message := http.StatusServiceUnavailable, "Audit storage unavailable"
+	switch {
+	case errors.Is(err, context.DeadlineExceeded):
+		status, message = http.StatusGatewayTimeout, "Audit storage timed out"
+	case errors.Is(err, context.Canceled):
+		status, message = http.StatusRequestTimeout, "Audit request canceled"
+	case errors.Is(err, clientaudit.ErrInvalidInput):
+		status, message = http.StatusBadRequest, "Invalid audit request"
+	case errors.Is(err, clientaudit.ErrConflict):
+		status, message = http.StatusConflict, "Audit nonce conflict"
+	}
+	c.JSON(status, response.ErrorResponse{Error: message})
 }
 
-// AuditConn
-// @Tags 审计
-// @Summary 审计连接
-// @Description 审计连接
-// @Accept  json
-// @Produce  json
-// @Param body body request.AuditConnForm true "审计连接"
-// @Success 200 {string} string ""
-// @Failure 500 {object} response.Response
-// @Router /audit/conn [post]
+func auditContext(c *gin.Context) (context.Context, context.CancelFunc) {
+	budget := global.Config.App.AuthTimeout
+	if budget <= 0 {
+		budget = 5 * time.Second
+	}
+	return context.WithTimeout(c.Request.Context(), budget)
+}
+
+func decodeAudit(c *gin.Context, value interface{}) bool {
+	if c.Request.Body == nil {
+		return false
+	}
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 1<<20)
+	decoder := json.NewDecoder(c.Request.Body)
+	if decoder.Decode(value) != nil {
+		return false
+	}
+	var trailing interface{}
+	return decoder.Decode(&trailing) == io.EOF
+}
+
+// AuditConn stores open/auth/close events; the old note-only payload is not an
+// audit event and cannot receive a successful storage acknowledgement here.
 func (a *Audit) AuditConn(c *gin.Context) {
-	af := &request.AuditConnForm{}
-	err := c.ShouldBindBodyWith(af, binding.JSON)
-	if err != nil {
-		response.Error(c, response.TranslateMsg(c, "ParamsError")+err.Error())
+	form := &request.AuditConnForm{}
+	if !decodeAudit(c, form) || form.Note != nil || len(form.Peer) > 2 {
+		auditFailed(c, clientaudit.ErrInvalidInput)
 		return
 	}
-	/*ttt := &gin.H{}
-	c.ShouldBindBodyWith(ttt, binding.JSON)
-	fmt.Println(ttt)*/
-	ac := af.ToAuditConn()
-	if af.Action == model.AuditActionNew {
-		err = service.AllService.AuditService.CreateAuditConnIfNonceUnique(ac)
-	} else if af.Action == model.AuditActionClose {
-		ex := service.AllService.AuditService.InfoByPeerIdAndConnId(af.Id, af.ConnId)
-		if ex.Id != 0 {
-			ex.CloseTime = time.Now().Unix()
-			err = service.AllService.AuditService.UpdateAuditConn(ex)
-		}
-	} else if af.Action == "" {
-		ex := service.AllService.AuditService.InfoByPeerIdAndConnId(af.Id, af.ConnId)
-		if ex.Id != 0 {
-			up := &model.AuditConn{
-				IdModel:     model.IdModel{Id: ex.Id},
-				FromPeer:    ac.FromPeer,
-				FromName:    ac.FromName,
-				SessionId:   ac.SessionId,
-				Type:        ac.Type,
-				PrimaryAuth: ac.PrimaryAuth,
-				TwoFactor:   ac.TwoFactor,
-			}
-			err = service.AllService.AuditService.UpdateAuditConn(up)
-		}
+	if service.AllService == nil {
+		auditFailed(c, clientaudit.ErrUnavailable)
+		return
 	}
-	if err != nil {
+	ctx, cancel := auditContext(c)
+	defer cancel()
+	if err := service.AllService.AuditService.ReceiveConn(ctx, form.ToAuditConn()); err != nil {
 		auditFailed(c, err)
 		return
 	}
 	auditStored(c)
 }
 
-// AuditFile
-// @Tags 审计
-// @Summary 审计文件
-// @Description 审计文件
-// @Accept  json
-// @Produce  json
-// @Param body body request.AuditFileForm true "审计文件"
-// @Success 200 {string} string ""
-// @Failure 500 {object} response.Response
-// @Router /audit/file [post]
 func (a *Audit) AuditFile(c *gin.Context) {
-	aff := &request.AuditFileForm{}
-	err := c.ShouldBindBodyWith(aff, binding.JSON)
-	if err != nil {
-		response.Error(c, response.TranslateMsg(c, "ParamsError")+err.Error())
+	form := &request.AuditFileForm{}
+	if !decodeAudit(c, form) {
+		auditFailed(c, clientaudit.ErrInvalidInput)
 		return
 	}
-	//ttt := &gin.H{}
-	//c.ShouldBindBodyWith(ttt, binding.JSON)
-	//fmt.Println(ttt)
-	af := aff.ToAuditFile()
-	err = service.AllService.AuditService.CreateAuditFileIfNonceUnique(af)
-	if err != nil {
+	// Validate before the legacy filename adapter reads the nested info. It
+	// must not log decoder errors or turn malformed JSON into a stored success.
+	var info request.AuditFileInfo
+	var object map[string]json.RawMessage
+	if json.Unmarshal([]byte(form.Info), &object) != nil || object == nil || json.Unmarshal([]byte(form.Info), &info) != nil {
+		auditFailed(c, clientaudit.ErrInvalidInput)
+		return
+	}
+	if service.AllService == nil {
+		auditFailed(c, clientaudit.ErrUnavailable)
+		return
+	}
+	ctx, cancel := auditContext(c)
+	defer cancel()
+	if err := service.AllService.AuditService.ReceiveFile(ctx, form.ToAuditFile(), clientaudit.FileSource{Info: form.Info, IsFile: form.IsFile}); err != nil {
 		auditFailed(c, err)
 		return
 	}

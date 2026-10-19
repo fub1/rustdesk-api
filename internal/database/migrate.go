@@ -97,7 +97,7 @@ func migrateSchema(db *gorm.DB) error {
 		&model.Version{}, &model.User{}, &model.UserToken{}, &model.Tag{},
 		&model.AddressBook{}, &model.Peer{}, &model.Group{}, &model.UserThird{},
 		&model.Oauth{}, &model.OIDCIdentity{}, &model.LoginLog{}, &model.ShareRecord{}, &model.AuditConn{},
-		&model.AuditFile{}, &model.AddressBookCollection{}, &model.AddressBookCollectionRule{},
+		&model.AuditFile{}, &model.AuditDeliveryReceipt{}, &model.AddressBookCollection{}, &model.AddressBookCollectionRule{},
 		&model.ServerCmd{}, &model.DeviceGroup{}, &model.PeerStrategy{}, &model.OperationLog{},
 	); err != nil {
 		return fmt.Errorf("migrate schema: %w", err)
