@@ -1,5 +1,7 @@
 # RustDesk 1.5.0 HTTP API 契约基线
 
+COMP12-B 后续证据：settings/personal、标签四写入口与peer删除共七端点，已增加42个生产HTTP/SQLite无效会话组合和同范围正控制；本地logout旧token、禁用、撤销、过期等均验证401且七表原始数据不变。这不是实际Flutter/IdP退出验收，也未新增会话政策。
+
 COMP12-A 校正并修复 personal 关闭分支：旧200 null不能被固定客户端的非nullable Map解析；现返回404进入明确legacy分支。settings始终保持200对象；空body/{}、身份隔离及配置分支的HTTP回归见 `http/addressbook_initialization_test.go`。这是源码契约与HTTP证据，尚未真实Flutter验收。
 
 后续 COMP11 实现：native 登录、OIDC poll、当前用户及用户列表显式返回本地 display_name/avatar，含空字符串；可见性、分页与管理端封套保持原规则。测试见 `http/user_profile_compat_test.go`，真实客户端头像加载/昵称与缓存刷新尚未验收。
