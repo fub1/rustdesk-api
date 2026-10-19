@@ -34,6 +34,7 @@ type idpOptions struct {
 	omitIDToken    bool
 	badSignature   bool
 	tokenStatus    int
+	tokenError     string
 	userInfoStatus int
 	keysStatus     int
 	block          string
@@ -102,6 +103,12 @@ func newTestIDP(t *testing.T, options idpOptions) *testIDP {
 			return
 		}
 		if options.tokenStatus != 0 {
+			if options.tokenError != "" {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(options.tokenStatus)
+				_ = json.NewEncoder(w).Encode(map[string]string{"error": options.tokenError, "error_description": "private-provider-error-body"})
+				return
+			}
 			w.WriteHeader(options.tokenStatus)
 			_, _ = w.Write([]byte("private-provider-error-body"))
 			return
@@ -224,7 +231,14 @@ func TestPublicAuthorizationAndExchangeOverTLS(t *testing.T) {
 		Picture: "https://images.example.test/avatar"}) {
 		t.Fatalf("unexpected identity (email is optional): %#v", identity)
 	}
-	request := <-f.tokenRequests
+	assertPublicTokenRequest(t, <-f.tokenRequests)
+	if len(f.tokenRequests) != 0 || f.userInfos.Load() != 1 || f.discoveries.Load() != 1 {
+		t.Fatal("unexpected refresh, UserInfo or discovery requests")
+	}
+}
+
+func assertPublicTokenRequest(t *testing.T, request tokenRequest) {
+	t.Helper()
 	if request.method != http.MethodPost || request.authorization != "" {
 		t.Fatalf("PUBLIC client used unexpected authentication: %#v", request)
 	}
@@ -234,8 +248,70 @@ func TestPublicAuthorizationAndExchangeOverTLS(t *testing.T) {
 			t.Fatalf("token %s = %q, want %q", key, request.form.Get(key), want)
 		}
 	}
-	if len(request.form) != 5 || request.form.Has("client_secret") || len(f.tokenRequests) != 0 || f.userInfos.Load() != 1 || f.discoveries.Load() != 1 {
-		t.Fatal("unexpected token parameters, refresh, UserInfo or discovery requests")
+	if len(request.form) != 5 || request.form.Has("client_secret") {
+		t.Fatal("unexpected token parameters or client secret")
+	}
+}
+
+func TestPublicRegistrationDoesNotNegotiateDiscoveryAuthenticationMethods(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		methods []string
+	}{
+		{"explicit none", []string{"none"}},
+		{"omitted", nil},
+		{"Basic advertised", []string{"client_secret_basic"}},
+		{"confidential methods advertised", []string{"client_secret_basic", "client_secret_post", "client_secret_jwt",
+			"private_key_jwt", "tls_client_auth", "self_signed_tls_client_auth"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newTestIDP(t, idpOptions{metadata: func(m map[string]interface{}) {
+				if tc.methods == nil {
+					delete(m, "token_endpoint_auth_methods_supported")
+				} else {
+					m["token_endpoint_auth_methods_supported"] = tc.methods
+				}
+			}})
+			p := f.provider(t)
+			authorization, err := p.AuthorizationURL(context.Background(), "state-for-attempt", testNonce, testVerifier)
+			if err != nil {
+				t.Fatal(err)
+			}
+			u, err := url.Parse(authorization)
+			if err != nil || u.Query().Get("code_challenge_method") != "S256" ||
+				u.Query().Get("code_challenge") != "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM" {
+				t.Fatal("discovery changed S256 authorization")
+			}
+			identity, err := p.Exchange(context.Background(), "authorization-code", testNonce, testVerifier)
+			if err != nil || identity.Issuer != f.server.URL || identity.Subject != "stable-subject" {
+				t.Fatalf("registered PUBLIC exchange failed: %#v, %v", identity, err)
+			}
+			if len(f.tokenRequests) != 1 || f.userInfos.Load() != 1 || f.discoveries.Load() != 1 {
+				t.Fatal("unexpected token, UserInfo or discovery request count")
+			}
+			assertPublicTokenRequest(t, <-f.tokenRequests)
+		})
+	}
+}
+
+func TestInvalidClientNeverFallsBackToAnotherAuthenticationMethod(t *testing.T) {
+	for _, status := range []int{http.StatusBadRequest, http.StatusUnauthorized} {
+		t.Run(http.StatusText(status), func(t *testing.T) {
+			f := newTestIDP(t, idpOptions{
+				metadata: func(m map[string]interface{}) {
+					m["token_endpoint_auth_methods_supported"] = []string{"client_secret_basic", "client_secret_post"}
+				},
+				tokenStatus: status, tokenError: "invalid_client",
+			})
+			identity, err := f.provider(t).Exchange(context.Background(), "authorization-code", testNonce, testVerifier)
+			if err != ErrUnavailable || identity != (Identity{}) {
+				t.Fatalf("token rejection leaked details or returned an identity: %#v, %v", identity, err)
+			}
+			if len(f.tokenRequests) != 1 || f.userInfos.Load() != 0 {
+				t.Fatal("invalid_client retried token authentication or requested UserInfo")
+			}
+			assertPublicTokenRequest(t, <-f.tokenRequests)
+		})
 	}
 }
 
@@ -369,8 +445,8 @@ func TestConfigurationAndPKCECannotDowngrade(t *testing.T) {
 		change func(map[string]interface{})
 	}{
 		{"plain only", func(m map[string]interface{}) { m["code_challenge_methods_supported"] = []string{"plain"} }},
-		{"confidential only", func(m map[string]interface{}) {
-			m["token_endpoint_auth_methods_supported"] = []string{"client_secret_basic"}
+		{"malformed authentication methods", func(m map[string]interface{}) {
+			m["token_endpoint_auth_methods_supported"] = "client_secret_basic"
 		}},
 		{"unsigned", func(m map[string]interface{}) { m["id_token_signing_alg_values_supported"] = []string{"none"} }},
 		{"symmetric", func(m map[string]interface{}) { m["id_token_signing_alg_values_supported"] = []string{"HS256"} }},

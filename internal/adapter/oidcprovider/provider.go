@@ -113,8 +113,11 @@ func (p *Provider) prepare(ctx context.Context) (*preparedProvider, error) {
 			return nil, ErrConfiguration
 		}
 	}
-	if (len(info.AuthMethods) != 0 && !contains(info.AuthMethods, "none")) ||
-		(len(info.ChallengeMethods) != 0 && !contains(info.ChallengeMethods, "S256")) {
+	// This RP uses a pre-registered PUBLIC client with authentication method
+	// none. Discovery's optional authentication-method list does not negotiate
+	// that registration or enable a secret/Basic fallback. Still decode the
+	// metadata above so malformed field types fail closed.
+	if len(info.ChallengeMethods) != 0 && !contains(info.ChallengeMethods, "S256") {
 		return nil, ErrConfiguration
 	}
 	var algorithms []string

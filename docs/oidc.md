@@ -22,6 +22,28 @@ Discovery, authorization, token, UserInfo and JWKS endpoints must use HTTPS.
 Use a publicly trusted certificate (or an explicitly configured system trust
 store). There is no TLS-verification bypass.
 
+The locally registered client must be PUBLIC with token authentication method
+`none`. Discovery's optional `token_endpoint_auth_methods_supported` list does
+not select or negotiate this client's registration: this RP can use that
+pre-registered PUBLIC client when the list omits `none`, including when the list
+is absent or lists only confidential-client methods. This does not establish
+that the metadata exhaustively describes PUBLIC-client support; registration
+and an actual successful exchange remain necessary. The RP always sends
+`client_id` and the S256 verifier in the token body, with no secret or Basic
+header. A token rejection, including `invalid_client`, fails the attempt without
+trying another authentication method. Explicitly advertised PKCE methods must
+still include S256, and all existing HTTPS and identity checks remain required.
+
+This compatibility policy follows the optional metadata/default description in
+[OIDC Discovery section 3](https://openid.net/specs/openid-connect-discovery-1_0.html#ProviderMetadata)
+and [RFC 8414 section 2](https://www.rfc-editor.org/rfc/rfc8414.html#section-2),
+the PUBLIC-client `none` method in
+[OIDC Core section 9](https://openid.net/specs/openid-connect-core-1_0.html#ClientAuthentication),
+and the unauthenticated token request's `client_id` requirement in
+[RFC 6749 section 4.1.3](https://www.rfc-editor.org/rfc/rfc6749.html#section-4.1.3).
+The metadata's omission default (`client_secret_basic`) is not used to change
+this explicitly pre-registered PUBLIC client's authentication method.
+
 Create/update the existing admin OAuth resource using its authenticated admin
 API; this example is the JSON body, with no credentials embedded:
 
