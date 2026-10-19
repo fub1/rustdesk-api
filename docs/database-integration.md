@@ -34,3 +34,23 @@ independent pools. PostgreSQL deferred constraints and MySQL server-side
 connection termination distinguish actual commit failure from a mocked error.
 Each added case records its scope; these tests do not establish every possible
 isolation anomaly, production topology or deployment upgrade procedure.
+
+## Transaction and concurrency scope
+
+The real-engine tests cover audit receipts across 12 independent pools,
+different-payload conflicts, replay after business deletion, and actual failed
+COMMIT followed by fresh-pool retry. Identity tests cover failed admission
+COMMIT with no leaked account/session, concurrent first admission, two users
+competing to bind one identity, and byte-exact issuer/subject uniqueness.
+Session renewal/revocation run concurrently rather than in a sequential loop.
+Policy tests distinguish original serialization/deadlock SQL errors from other
+storage errors and verify durable history and clearing after a retry.
+
+A deterministic barrier reproduced a user/session lock inversion between web
+issuance and explicit binding on both engines (MySQL 1213 / PostgreSQL 40P01).
+Actor checks now lock the user before its session, matching issuance and
+password-change order. The same competing operations must both commit after the
+fix. This does not prove all cross-provider or legacy operations deadlock-free.
+The connection-loss injection happens before COMMIT, not after a confirmed
+server commit whose response was lost; ambiguous outcomes remain a separate
+boundary.

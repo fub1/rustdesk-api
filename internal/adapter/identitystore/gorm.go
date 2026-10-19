@@ -155,16 +155,12 @@ func (s *Store) Login(ctx context.Context, identity auth.ExternalIdentity, confi
 }
 
 func checkActor(tx *gorm.DB, actor auth.Principal, now time.Time) error {
-	var sessions []model.UserToken
 	if actor.User.ID == 0 || actor.Session.Token == "" || actor.Session.UserID != actor.User.ID || !actor.Session.ExpiresAt.After(now) {
 		return auth.ErrUnauthenticated
 	}
-	if err := lock(tx).Where("token = ?", actor.Session.Token).Limit(2).Find(&sessions).Error; err != nil {
-		return err
-	}
-	if len(sessions) != 1 || sessions[0].UserId != actor.User.ID || sessions[0].Id != actor.Session.ID || sessions[0].ExpiredAt <= now.Unix() {
-		return auth.ErrUnauthenticated
-	}
+	// Issuance and password changes lock the user before its sessions. Keep
+	// actor validation in the same order so a binding cannot deadlock a web
+	// issuance holding the user while waiting for this approving session.
 	var user model.User
 	if err := lock(tx).First(&user, actor.User.ID).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -174,6 +170,13 @@ func checkActor(tx *gorm.DB, actor auth.Principal, now time.Time) error {
 	}
 	if user.Status != model.COMMON_STATUS_ENABLE {
 		return auth.ErrDisabled
+	}
+	var sessions []model.UserToken
+	if err := lock(tx).Where("token = ?", actor.Session.Token).Limit(2).Find(&sessions).Error; err != nil {
+		return err
+	}
+	if len(sessions) != 1 || sessions[0].UserId != actor.User.ID || sessions[0].Id != actor.Session.ID || sessions[0].ExpiredAt <= now.Unix() {
+		return auth.ErrUnauthenticated
 	}
 	return nil
 }
