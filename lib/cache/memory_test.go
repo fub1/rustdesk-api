@@ -8,100 +8,81 @@ import (
 
 func TestMemorySet(t *testing.T) {
 	mc := NewMemoryCache(0)
-	err := mc.Set("123", "44567", 0)
-	if err != nil {
-		fmt.Println(err.Error())
-		t.Fatalf("写入失败")
+	t.Cleanup(mc.stopEviction)
+	if err := mc.Set("key", "value", 0); err != nil {
+		t.Fatalf("Set: %v", err)
 	}
 }
 
 func TestMemoryGet(t *testing.T) {
 	mc := NewMemoryCache(0)
-	mc.Set("123", "44567", 0)
-	res := ""
-	err := mc.Get("123", &res)
-	fmt.Println("res", res)
-	if err != nil {
-		t.Fatalf("读取失败 " + err.Error())
+	t.Cleanup(mc.stopEviction)
+	if err := mc.Set("key", "value", 0); err != nil {
+		t.Fatalf("Set: %v", err)
 	}
-	if res != "44567" {
-		t.Fatalf("读取错误")
+	var got string
+	if err := mc.Get("key", &got); err != nil {
+		t.Fatalf("Get: %v", err)
 	}
-
+	if got != "value" {
+		t.Fatalf("Get = %q, want value", got)
+	}
 }
 
 func TestMemorySetExpGet(t *testing.T) {
 	mc := NewMemoryCache(0)
-	//mc.stopEviction()
-	mc.Set("1", "10", 10)
-	mc.Set("2", "5", 5)
-	err := mc.Set("3", "3", 3)
-	if err != nil {
-		t.Fatalf("写入失败")
+	t.Cleanup(mc.stopEviction)
+	if err := mc.Set("short", "expires", 1); err != nil {
+		t.Fatalf("Set short: %v", err)
 	}
-
-	res := ""
-	err = mc.Get("3", &res)
-	if err != nil {
-		t.Fatalf("读取失败" + err.Error())
+	if err := mc.Set("long", "retained", 30); err != nil {
+		t.Fatalf("Set long: %v", err)
 	}
-	fmt.Println("res 3", res)
-	time.Sleep(4 * time.Second)
-	//res = ""
-	err = mc.Get("3", &res)
-	if err != nil {
-		t.Fatalf("读取失败" + err.Error())
+	var got string
+	if err := mc.Get("short", &got); err != nil || got != "expires" {
+		t.Fatalf("Get before expiry = %q, %v", got, err)
 	}
-	fmt.Println("res 3", res)
-	err = mc.Get("2", &res)
-	if err != nil {
-		t.Fatalf("读取失败" + err.Error())
+	time.Sleep(1100 * time.Millisecond)
+	if err := mc.Get("short", &got); err != nil || got != "" {
+		t.Fatalf("Get expired value = %q, %v; want empty", got, err)
 	}
-	fmt.Println("res 2", res)
-	err = mc.Get("1", &res)
-	if err != nil {
-		t.Fatalf("读取失败" + err.Error())
+	if err := mc.Get("long", &got); err != nil || got != "retained" {
+		t.Fatalf("Get retained value = %q, %v", got, err)
 	}
-	fmt.Println("res 1", res)
-
 }
+
 func TestMemoryLru(t *testing.T) {
 	mc := NewMemoryCache(18)
-	mc.Set("1", "1111", 10)
-	mc.Set("2", "2222", 5)
-	//读取一次，2就会被放到最后
-	mc.Get("1", nil)
-	err := mc.Set("3", "三", 3)
-	if err != nil {
-		//t.Fatalf("写入失败")
+	t.Cleanup(mc.stopEviction)
+	if err := mc.Set("1", "1111", 30); err != nil {
+		t.Fatal(err)
 	}
-
-	res := ""
-	err = mc.Get("3", &res)
-	if err != nil {
-		t.Fatalf("读取失败" + err.Error())
+	if err := mc.Set("2", "2222", 30); err != nil {
+		t.Fatal(err)
 	}
-	fmt.Println("res3", res)
-	res = ""
-	err = mc.Get("2", &res)
-	if err != nil {
-		t.Fatalf("读取失败" + err.Error())
+	var got string
+	if err := mc.Get("1", &got); err != nil || got != "1111" {
+		t.Fatalf("Get recent key = %q, %v", got, err)
 	}
-	fmt.Println("res2", res)
-	res = ""
-	err = mc.Get("1", &res)
-	if err != nil {
-		t.Fatalf("读取失败" + err.Error())
+	if err := mc.Set("3", "三", 30); err != nil {
+		t.Fatal(err)
 	}
-	fmt.Println("res1", res)
-
+	for key, want := range map[string]string{"1": "1111", "2": "", "3": "三"} {
+		if err := mc.Get(key, &got); err != nil || got != want {
+			t.Errorf("Get(%q) = %q, %v; want %q", key, got, err, want)
+		}
+	}
 }
+
 func BenchmarkMemorySet(b *testing.B) {
 	mc := NewMemoryCache(0)
+	b.Cleanup(mc.stopEviction)
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		key := fmt.Sprintf("key%d", i)
 		value := fmt.Sprintf("value%d", i)
-		mc.Set(key, value, 1000)
+		if err := mc.Set(key, value, 1000); err != nil {
+			b.Fatal(err)
+		}
 	}
 }

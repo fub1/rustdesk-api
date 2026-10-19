@@ -1,94 +1,105 @@
 package cache
 
 import (
-	"fmt"
 	"reflect"
 	"testing"
 )
 
-func TestFileSet(t *testing.T) {
+func fileForTest(t testing.TB) *FileCache {
+	t.Helper()
 	fc := NewFileCache()
-	err := fc.Set("123", "ddd", 0)
-	if err != nil {
-		fmt.Println(err.Error())
-		t.Fatalf("写入失败")
+	fc.SetDir(t.TempDir())
+	return fc
+}
+
+func TestFileSet(t *testing.T) {
+	fc := fileForTest(t)
+	if err := fc.Set("key", "value", 0); err != nil {
+		t.Fatalf("Set: %v", err)
 	}
 }
 
 func TestFileGet(t *testing.T) {
-	fc := NewFileCache()
-	res := ""
-	err := fc.Get("123", &res)
-	if err != nil {
-		fmt.Println(err.Error())
-		t.Fatalf("读取失败")
+	fc := fileForTest(t)
+	if err := fc.Set("key", "value", 0); err != nil {
+		t.Fatalf("Set: %v", err)
 	}
-	fmt.Println("res", res)
+	var got string
+	if err := fc.Get("key", &got); err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if got != "value" {
+		t.Fatalf("Get = %q, want value", got)
+	}
 }
+
 func TestFileSetGet(t *testing.T) {
-	fc := NewFileCache()
-	err := fc.Set("key1", "ddd", 0)
-	res := ""
-	err = fc.Get("key1", &res)
-	if err != nil {
-		fmt.Println(err.Error())
-		t.Fatalf("读取失败")
+	fc := fileForTest(t)
+	if err := fc.Set("key", "before", 0); err != nil {
+		t.Fatalf("Set: %v", err)
 	}
-	fmt.Println("res", res)
+	if err := fc.Set("key", "after", 300); err != nil {
+		t.Fatalf("overwrite: %v", err)
+	}
+	var got string
+	if err := fc.Get("key", &got); err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if got != "after" {
+		t.Fatalf("Get = %q, want after", got)
+	}
 }
+
 func TestFileGetJson(t *testing.T) {
-	fc := NewFileCache()
-	old := &r{
-		A: "a", B: "b",
+	fc := fileForTest(t)
+	want := &r{A: "a", B: "b"}
+	if err := fc.Set("key", want, 0); err != nil {
+		t.Fatalf("Set: %v", err)
 	}
-	fc.Set("123", old, 0)
-	res := &r{}
-	err2 := fc.Get("123", res)
-	fmt.Println("res", res)
-	if err2 != nil {
-		t.Fatalf("读取失败" + err2.Error())
+	got := &r{}
+	if err := fc.Get("key", got); err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("Get = %#v, want %#v", got, want)
 	}
 }
+
 func TestFileSetGetJson(t *testing.T) {
-	fc := NewFileCache()
-
-	old_rr := &rr{AA: "aa", BB: "bb"}
-	old := &r{
-		A: "a", B: "b",
-		R: old_rr,
+	fc := fileForTest(t)
+	want := &r{A: "a", B: "b", R: &rr{AA: "aa", BB: "bb"}}
+	if err := fc.Set("key", want, 300); err != nil {
+		t.Fatalf("Set: %v", err)
 	}
-	err := fc.Set("123", old, 300)
-	if err != nil {
-		t.Fatalf("写入失败")
+	got := &r{}
+	if err := fc.Get("key", got); err != nil {
+		t.Fatalf("Get: %v", err)
 	}
-	//old_rr.AA = "aaa"
-	fmt.Println("old_rr", old)
-
-	res := &r{}
-	err2 := fc.Get("123", res)
-	fmt.Println("res", res)
-	if err2 != nil {
-		t.Fatalf("读取失败" + err2.Error())
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("Get = %#v, want %#v", got, want)
 	}
-	if !reflect.DeepEqual(res, old) {
-		t.Fatalf("读取错误")
-	}
-
 }
 
 func BenchmarkSet(b *testing.B) {
-	fc := NewFileCache()
+	fc := fileForTest(b)
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		fc.Set("123", "{dsv}", 1000)
+		if err := fc.Set("key", "value", 1000); err != nil {
+			b.Fatal(err)
+		}
 	}
 }
 
 func BenchmarkGet(b *testing.B) {
-	fc := NewFileCache()
+	fc := fileForTest(b)
+	if err := fc.Set("key", "value", 1000); err != nil {
+		b.Fatal(err)
+	}
+	var got string
 	b.ResetTimer()
-	v := ""
 	for i := 0; i < b.N; i++ {
-		fc.Get("123", &v)
+		if err := fc.Get("key", &got); err != nil {
+			b.Fatal(err)
+		}
 	}
 }

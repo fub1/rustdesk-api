@@ -1,5 +1,12 @@
 # RustDesk API
 
+[![Validate](https://github.com/fub1/rustdesk-api/actions/workflows/validate.yml/badge.svg)](https://github.com/fub1/rustdesk-api/actions/workflows/validate.yml)
+
+本仓库基于 [alonginwind/rustdesk-api](https://github.com/alonginwind/rustdesk-api)，
+保留上游 Git 历史，以小步改造推进 Go 架构、标准 OIDC 接入及 RustDesk 客户端兼容。
+工程验证使用 Go 1.23.10、CGO 和已提交的依赖校验文件；push 与 PR 自动执行测试和构建验证。
+开发与测试方法见 [testing.md](docs/testing.md)。以下保留上游使用说明，其中产品能力不代表本仓库已完成验收。
+
 [English Doc](README_EN.md)
 
 本项目使用 Go 实现了 RustDesk 的 API，并包含了 Web Admin 和 Web 客户端。

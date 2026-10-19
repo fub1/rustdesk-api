@@ -2,7 +2,6 @@ package cache
 
 import (
 	"fmt"
-	"github.com/go-redis/redis/v8"
 	"reflect"
 	"testing"
 )
@@ -38,55 +37,59 @@ func TestSimpleCache(t *testing.T) {
 }
 
 func TestFileCacheSet(t *testing.T) {
-	fc := New("file")
-	err := fc.Set("123", "ddd", 0)
-	if err != nil {
-		fmt.Println(err.Error())
-		t.Fatalf("写入失败")
+	fc := New(TypeFile).(*FileCache)
+	fc.SetDir(t.TempDir())
+	if err := fc.Set("key", "value", 0); err != nil {
+		t.Fatalf("Set: %v", err)
+	}
+	var got string
+	if err := fc.Get("key", &got); err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if got != "value" {
+		t.Fatalf("Get = %q, want value", got)
 	}
 }
 
 func TestFileCacheGet(t *testing.T) {
-	fc := New("file")
-	err := fc.Set("123", "45156", 300)
-	if err != nil {
-		t.Fatalf("写入失败")
+	fc := New(TypeFile).(*FileCache)
+	fc.SetDir(t.TempDir())
+	if err := fc.Set("key", "updated", 300); err != nil {
+		t.Fatalf("Set: %v", err)
 	}
-	res := ""
-	err = fc.Get("123", &res)
-	if err != nil {
-		t.Fatalf("读取失败")
+	var got string
+	if err := fc.Get("key", &got); err != nil {
+		t.Fatalf("Get: %v", err)
 	}
-	fmt.Println("res", res)
+	if got != "updated" {
+		t.Fatalf("Get = %q, want updated", got)
+	}
 }
 
 func TestRedisCacheSet(t *testing.T) {
-	rc := NewRedis(&redis.Options{
-		Addr:     "192.168.1.168:6379",
-		Password: "", // no password set
-		DB:       0,  // use default DB
-	})
-	err := rc.Set("123", "ddd", 0)
-	if err != nil {
-		fmt.Println(err.Error())
-		t.Fatalf("写入失败")
+	rc, key := redisForTest(t, NewRedis)
+	if err := rc.Set(key, "value", 0); err != nil {
+		t.Fatalf("Set: %v", err)
+	}
+	var got string
+	if err := rc.Get(key, &got); err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if got != "value" {
+		t.Fatalf("Get = %q, want value", got)
 	}
 }
 
 func TestRedisCacheGet(t *testing.T) {
-	rc := NewRedis(&redis.Options{
-		Addr:     "192.168.1.168:6379",
-		Password: "", // no password set
-		DB:       0,  // use default DB
-	})
-	err := rc.Set("123", "451156", 300)
-	if err != nil {
-		t.Fatalf("写入失败")
+	rc, key := redisForTest(t, NewRedis)
+	if err := rc.Set(key, "updated", 300); err != nil {
+		t.Fatalf("Set: %v", err)
 	}
-	res := ""
-	err = rc.Get("123", &res)
-	if err != nil {
-		t.Fatalf("读取失败")
+	var got string
+	if err := rc.Get(key, &got); err != nil {
+		t.Fatalf("Get: %v", err)
 	}
-	fmt.Println("res", res)
+	if got != "updated" {
+		t.Fatalf("Get = %q, want updated", got)
+	}
 }

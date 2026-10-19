@@ -1,94 +1,119 @@
 package cache
 
 import (
-	"fmt"
-	"github.com/go-redis/redis/v8"
+	"context"
+	"crypto/rand"
+	"encoding/hex"
+	"os"
 	"reflect"
 	"testing"
+	"time"
+
+	"github.com/go-redis/redis/v8"
 )
 
-func TestRedisSet(t *testing.T) {
-	//rc := New("redis")
-	rc := RedisCacheInit(&redis.Options{
-		Addr:     "192.168.1.168:6379",
-		Password: "", // no password set
-		DB:       0,  // use default DB
+func redisForTest(t testing.TB, construct func(*redis.Options) *RedisCache) (*RedisCache, string) {
+	t.Helper()
+	addr := os.Getenv("RUSTDESK_TEST_REDIS_ADDR")
+	if addr == "" {
+		if os.Getenv("RUSTDESK_TEST_REDIS_REQUIRED") == "1" {
+			t.Fatal("RUSTDESK_TEST_REDIS_REQUIRED=1 requires RUSTDESK_TEST_REDIS_ADDR")
+		}
+		t.Skip("Redis integration test: set RUSTDESK_TEST_REDIS_ADDR to opt in (required in CI)")
+	}
+	rc := construct(&redis.Options{
+		Addr:         addr,
+		Password:     os.Getenv("RUSTDESK_TEST_REDIS_PASSWORD"),
+		DialTimeout:  2 * time.Second,
+		ReadTimeout:  2 * time.Second,
+		WriteTimeout: 2 * time.Second,
+		MaxRetries:   -1,
 	})
-	err := rc.Set("123", "ddd", 0)
-	if err != nil {
-		fmt.Println(err.Error())
-		t.Fatalf("写入失败")
+	t.Cleanup(func() {
+		if err := rc.rdb.Close(); err != nil {
+			t.Errorf("close Redis connection: %v", err)
+		}
+	})
+	pingCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	if err := rc.rdb.Ping(pingCtx).Err(); err != nil {
+		t.Fatalf("Redis at configured address is unavailable: %v", err)
+	}
+	var random [16]byte
+	if _, err := rand.Read(random[:]); err != nil {
+		t.Fatalf("generate isolated Redis key: %v", err)
+	}
+	key := "rustdesk-api-test:" + hex.EncodeToString(random[:])
+	t.Cleanup(func() {
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+		if err := rc.rdb.Del(cleanupCtx, key).Err(); err != nil {
+			t.Errorf("remove test's Redis key: %v", err)
+		}
+	})
+	return rc, key
+}
+
+func TestRedisSet(t *testing.T) {
+	rc, key := redisForTest(t, RedisCacheInit)
+	if err := rc.Set(key, "value", 0); err != nil {
+		t.Fatalf("Set: %v", err)
+	}
+	ttl, err := rc.rdb.TTL(context.Background(), key).Result()
+	if err != nil || ttl <= 0 {
+		t.Fatalf("TTL = %v, error = %v; want positive default TTL", ttl, err)
 	}
 }
 
 func TestRedisGet(t *testing.T) {
-	rc := RedisCacheInit(&redis.Options{
-		Addr:     "192.168.1.168:6379",
-		Password: "", // no password set
-		DB:       0,  // use default DB
-	})
-	err := rc.Set("123", "451156", 300)
-	if err != nil {
-		t.Fatalf("写入失败")
+	rc, key := redisForTest(t, RedisCacheInit)
+	if err := rc.Set(key, "value", 300); err != nil {
+		t.Fatalf("Set: %v", err)
 	}
-	res := ""
-	err = rc.Get("123", &res)
-	if err != nil {
-		t.Fatalf("读取失败")
+	var got string
+	if err := rc.Get(key, &got); err != nil {
+		t.Fatalf("Get: %v", err)
 	}
-	fmt.Println("res", res)
+	if got != "value" {
+		t.Fatalf("Get = %q, want value", got)
+	}
 }
 
 func TestRedisGetJson(t *testing.T) {
-	rc := RedisCacheInit(&redis.Options{
-		Addr:     "192.168.1.168:6379",
-		Password: "", // no password set
-		DB:       0,  // use default DB
-	})
-	type r struct {
-		Aa string `json:"a"`
-		B  string `json:"c"`
+	rc, key := redisForTest(t, RedisCacheInit)
+	want := &r{A: "a", B: "b", R: &rr{AA: "aa", BB: "bb"}}
+	if err := rc.Set(key, want, 300); err != nil {
+		t.Fatalf("Set: %v", err)
 	}
-	old := &r{
-		Aa: "ab", B: "cdc",
+	got := &r{}
+	if err := rc.Get(key, got); err != nil {
+		t.Fatalf("Get: %v", err)
 	}
-	err := rc.Set("1233", old, 300)
-	if err != nil {
-		t.Fatalf("写入失败")
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("Get = %#v, want %#v", got, want)
 	}
-
-	res := &r{}
-	err2 := rc.Get("1233", res)
-	if err2 != nil {
-		t.Fatalf("读取失败")
-	}
-	if !reflect.DeepEqual(res, old) {
-		t.Fatalf("读取错误")
-	}
-	fmt.Println(res, res.Aa)
 }
 
 func BenchmarkRSet(b *testing.B) {
-	rc := RedisCacheInit(&redis.Options{
-		Addr:     "192.168.1.168:6379",
-		Password: "", // no password set
-		DB:       0,  // use default DB
-	})
+	rc, key := redisForTest(b, RedisCacheInit)
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		rc.Set("123", "{dsv}", 1000)
+		if err := rc.Set(key, "value", 1000); err != nil {
+			b.Fatal(err)
+		}
 	}
 }
 
 func BenchmarkRGet(b *testing.B) {
-	rc := RedisCacheInit(&redis.Options{
-		Addr:     "192.168.1.168:6379",
-		Password: "", // no password set
-		DB:       0,  // use default DB
-	})
+	rc, key := redisForTest(b, RedisCacheInit)
+	if err := rc.Set(key, "value", 1000); err != nil {
+		b.Fatal(err)
+	}
+	var got string
 	b.ResetTimer()
-	v := ""
 	for i := 0; i < b.N; i++ {
-		rc.Get("123", &v)
+		if err := rc.Get(key, &got); err != nil {
+			b.Fatal(err)
+		}
 	}
 }

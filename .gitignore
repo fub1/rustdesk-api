@@ -2,7 +2,7 @@
 runtime/*
 !runtime
 !runtime/cache/.gitkeep
-go.sum
 resources/admin
 release
+build/
 data/rustdeskapi.db

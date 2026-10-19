@@ -1,0 +1,86 @@
+name: Validate
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: validate-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test-vet-build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      CGO_ENABLED: '1'
+      GOTOOLCHAIN: local
+      GOFLAGS: -mod=readonly
+    services:
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379/tcp
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    steps:
+      - name: Check out the tested revision
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version: '1.23.10'
+          cache-dependency-path: go.sum
+
+      - name: Test all packages with the race detector
+        env:
+          RUSTDESK_TEST_REDIS_ADDR: 127.0.0.1:${{ job.services.redis.ports['6379'] }}
+          RUSTDESK_TEST_REDIS_REQUIRED: '1'
+        run: go test -race -count=1 -shuffle=on ./...
+
+      - name: Show Redis integration coverage
+        env:
+          RUSTDESK_TEST_REDIS_ADDR: 127.0.0.1:${{ job.services.redis.ports['6379'] }}
+          RUSTDESK_TEST_REDIS_REQUIRED: '1'
+        run: go test -count=1 -v ./lib/cache -run '^TestRedis'
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Build all packages
+        run: go build ./...
+
+      - name: Build a validation artifact from the same revision
+        shell: bash
+        run: |
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          mkdir -p build
+          go build -trimpath -o build/rustdesk-api ./cmd
+          git rev-parse HEAD > build/REVISION
+          go version > build/GO_VERSION
+          tar -czf build/rustdesk-api-linux-amd64.tar.gz -C build rustdesk-api REVISION GO_VERSION
+          cd build
+          sha256sum rustdesk-api-linux-amd64.tar.gz > SHA256SUMS
+
+      - name: Check dependency manifests stayed unchanged
+        run: git diff --exit-code -- go.mod go.sum
+
+      - name: Upload validation artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: validate-linux-amd64-${{ github.sha }}
+          path: |
+            build/rustdesk-api-linux-amd64.tar.gz
+            build/SHA256SUMS
+          if-no-files-found: error
+          retention-days: 7
+

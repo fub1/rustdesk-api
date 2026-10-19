@@ -95,7 +95,7 @@ func (ct *AddressBook) Create(c *gin.Context) {
 		return
 	}
 
-	key := fmt.Sprintf("%d_%d_%d", t.UserId, t.Id, t.CollectionId)
+	key := fmt.Sprintf("%d_%s_%d", t.UserId, t.Id, t.CollectionId)
 	v, _ := global.AddressBookLockMap.LoadOrStore(key, &sync.Mutex{})
 	mu := v.(*sync.Mutex)
 

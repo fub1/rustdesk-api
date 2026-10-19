@@ -16,7 +16,6 @@ func TestLocal_GetLock(t *testing.T) {
 	i := 0
 	go func() {
 		l1 = l.GetLock("key")
-		fmt.Println("l1", l1, i)
 		l1.Lock()
 		fmt.Println("l1", i)
 		i++
@@ -25,7 +24,6 @@ func TestLocal_GetLock(t *testing.T) {
 	}()
 	go func() {
 		l2 = l.GetLock("key")
-		fmt.Println("l2", l2, i)
 		l2.Lock()
 		fmt.Println("l2", i)
 		i++
@@ -34,7 +32,6 @@ func TestLocal_GetLock(t *testing.T) {
 	}()
 	go func() {
 		l3 = l.GetLock("key")
-		fmt.Println("l3", l3, i)
 		l3.Lock()
 		fmt.Println("l3", i)
 		i++
@@ -42,6 +39,12 @@ func TestLocal_GetLock(t *testing.T) {
 		wg.Done()
 	}()
 	wg.Wait()
+	if l1 != l2 || l2 != l3 {
+		t.Fatal("GetLock returned different locks for the same key")
+	}
+	if i != 3 {
+		t.Fatalf("protected counter = %d, want 3", i)
+	}
 
 	fmt.Println(l1, l2, l3)
 	fmt.Println(l1 == l2, l2 == l3)
@@ -66,6 +69,9 @@ func TestLocal_Lock(t *testing.T) {
 	}
 
 	wg.Wait()
+	if i != m {
+		t.Fatalf("protected counter = %d, want %d", i, m)
+	}
 	fmt.Println(i)
 
 }
