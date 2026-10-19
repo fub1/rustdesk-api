@@ -12,7 +12,7 @@ import (
 	"gorm.io/gorm/logger"
 )
 
-const testVersion uint = 275
+const testVersion uint = 276
 
 func openTestDB(t *testing.T) *gorm.DB {
 	t.Helper()

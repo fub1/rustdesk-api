@@ -33,7 +33,7 @@ import (
 	"gorm.io/gorm"
 )
 
-const DatabaseVersion = 275
+const DatabaseVersion = 276
 
 // @title 管理系统API
 // @version 1.0

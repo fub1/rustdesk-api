@@ -1,150 +1,136 @@
 package api
 
 import (
-	"github.com/gin-gonic/gin"
-	apiReq "github.com/lejianwen/rustdesk-api/v2/http/request/api"
-	"github.com/lejianwen/rustdesk-api/v2/http/response"
-	apiResp "github.com/lejianwen/rustdesk-api/v2/http/response/api"
-	"github.com/lejianwen/rustdesk-api/v2/model"
-	"github.com/lejianwen/rustdesk-api/v2/service"
+	"context"
+	"encoding/json"
+	"errors"
+	"io"
 	"net/http"
+	"time"
+
+	"github.com/gin-gonic/gin"
+	"github.com/lejianwen/rustdesk-api/v2/global"
+	apiReq "github.com/lejianwen/rustdesk-api/v2/http/request/api"
+	"github.com/lejianwen/rustdesk-api/v2/internal/clientcompat"
+	"github.com/lejianwen/rustdesk-api/v2/service"
 )
 
-type Group struct {
-}
+type Group struct{}
 
-// Users 用户列表
-// @Tags 群组
-// @Summary 用户列表
-// @Description 用户列表
-// @Accept  json
-// @Produce  json
-// @Param page query int false "页码"
-// @Param pageSize query int false "每页数量"
-// @Param status query int false "状态"
-// @Param accessible query string false "accessible"
-// @Success 200 {object} response.DataResponse{data=[]apiResp.UserPayload}
-// @Failure 500 {object} response.ErrorResponse
-// @Router /users [get]
-// @Security BearerAuth
+// clientOperation is the explicit legacy dependency boundary. Selected use
+// cases receive their own DB, actor value and bounded request context.
+func clientOperation(c *gin.Context) (*clientcompat.Store, clientcompat.Actor, context.Context, context.CancelFunc, bool) {
+	u := service.AllService.UserService.CurUser(c)
+	if u == nil || u.Id == 0 {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+		return nil, clientcompat.Actor{}, nil, nil, false
+	}
+	store, err := clientcompat.New(service.DB)
+	if err != nil {
+		clientFailure(c, err)
+		return nil, clientcompat.Actor{}, nil, nil, false
+	}
+	budget := global.Config.App.AuthTimeout
+	if budget <= 0 {
+		budget = 5 * time.Second
+	}
+	ctx, cancel := context.WithTimeout(c.Request.Context(), budget)
+	return store, clientcompat.Actor{ID: u.Id}, ctx, cancel, true
+}
+func clientFailure(c *gin.Context, err error) {
+	status, message := http.StatusServiceUnavailable, "Service unavailable"
+	switch {
+	case errors.Is(err, context.Canceled):
+		status, message = 408, "Request canceled"
+	case errors.Is(err, context.DeadlineExceeded):
+		status, message = 504, "Request timed out"
+	case errors.Is(err, clientcompat.ErrInput):
+		status, message = 400, "ParamsError"
+	case errors.Is(err, clientcompat.ErrNotFound):
+		status, message = 400, "ItemNotFound"
+	case errors.Is(err, clientcompat.ErrForbidden):
+		status, message = 400, "NoAccess"
+	}
+	c.JSON(status, gin.H{"error": message})
+}
+func clientBody(c *gin.Context, value any, strict bool) bool {
+	if c.Request.Body == nil {
+		return false
+	}
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 8<<20)
+	decoder := json.NewDecoder(c.Request.Body)
+	if strict {
+		decoder.DisallowUnknownFields()
+	}
+	if decoder.Decode(value) != nil {
+		return false
+	}
+	var extra any
+	return decoder.Decode(&extra) == io.EOF
+}
+func groupPage(c *gin.Context) (clientcompat.Page, bool, bool) {
+	query := c.Request.URL.Query()
+	page, err := apiReq.ClientPage(query)
+	if err != nil || len(query["status"]) > 1 || len(query["accessible"]) > 1 {
+		clientFailure(c, clientcompat.ErrInput)
+		return page, false, false
+	}
+	status := query.Get("status")
+	if status != "" && status != "0" && status != "1" {
+		clientFailure(c, clientcompat.ErrInput)
+		return page, false, false
+	}
+	return page, status == "1", true
+}
 func (g *Group) Users(c *gin.Context) {
-	q := &apiReq.UserListQuery{}
-	err := c.ShouldBindQuery(&q)
-	if err != nil {
-		response.Error(c, err.Error())
+	page, enabled, ok := groupPage(c)
+	if !ok {
 		return
 	}
-	u := service.AllService.UserService.CurUser(c)
-	gr := service.AllService.GroupService.InfoById(u.GroupId)
-	userList := &model.UserList{}
-	if !*u.IsAdmin && gr.Type != model.GroupTypeShare {
-		//仅能获取到自己
-		userList.Users = append(userList.Users, u)
-		userList.Total = 1
-	} else {
-		userList = service.AllService.UserService.ListByGroupId(u.GroupId, q.Page, q.PageSize)
+	store, actor, ctx, cancel, ok := clientOperation(c)
+	if !ok {
+		return
 	}
-
-	data := make([]*apiResp.UserPayload, 0, len(userList.Users))
-	for _, user := range userList.Users {
-		up := &apiResp.UserPayload{}
-		up.FromUser(user)
-		data = append(data, up)
+	defer cancel()
+	total, rows, err := store.Users(ctx, actor, page, enabled)
+	if err != nil {
+		clientFailure(c, err)
+		return
 	}
-	c.JSON(http.StatusOK, response.DataResponse{
-		Total: uint(userList.Total),
-		Data:  data,
-	})
+	c.JSON(http.StatusOK, gin.H{"total": total, "data": rows})
 }
-
-// Peers
-// @Tags 群组
-// @Summary 机器
-// @Description 机器
-// @Accept  json
-// @Produce  json
-// @Param page query int false "页码"
-// @Param pageSize query int false "每页数量"
-// @Param status query int false "状态"
-// @Param accessible query string false "accessible"
-// @Success 200 {object} response.DataResponse
-// @Failure 500 {object} response.Response
-// @Router /peers [get]
-// @Security BearerAuth
 func (g *Group) Peers(c *gin.Context) {
-	u := service.AllService.UserService.CurUser(c)
-	q := &apiReq.PeerListQuery{}
-	err := c.ShouldBindQuery(&q)
+	page, enabled, ok := groupPage(c)
+	if !ok {
+		return
+	}
+	store, actor, ctx, cancel, ok := clientOperation(c)
+	if !ok {
+		return
+	}
+	defer cancel()
+	total, rows, err := store.GroupPeers(ctx, actor, page, enabled)
 	if err != nil {
-		response.Error(c, err.Error())
+		clientFailure(c, err)
 		return
 	}
-	gr := service.AllService.GroupService.InfoById(u.GroupId)
-	users := make([]*model.User, 0, 1)
-	if !*u.IsAdmin && gr.Type != model.GroupTypeShare {
-		//仅能获取到自己
-		users = append(users, u)
-	} else {
-		users = service.AllService.UserService.ListIdAndNameByGroupId(u.GroupId)
-	}
-
-	namesById := make(map[uint]string, len(users))
-	userIds := make([]uint, 0, len(users))
-	for _, user := range users {
-		namesById[user.Id] = user.Username
-		userIds = append(userIds, user.Id)
-	}
-	dGroupNameById := make(map[uint]string)
-	allGroup := service.AllService.GroupService.DeviceGroupList(1, 999, nil)
-	for _, group := range allGroup.DeviceGroups {
-		dGroupNameById[group.Id] = group.Name
-	}
-	peerList := service.AllService.PeerService.ListByUserIds(userIds, q.Page, q.PageSize)
-	data := make([]*apiResp.GroupPeerPayload, 0, len(peerList.Peers))
-	for _, peer := range peerList.Peers {
-		uname, ok := namesById[peer.UserId]
-		if !ok {
-			uname = ""
-		}
-		dGroupName, ok2 := dGroupNameById[peer.GroupId]
-		if !ok2 {
-			dGroupName = ""
-		}
-		pp := &apiResp.GroupPeerPayload{}
-		pp.FromPeer(peer, uname, dGroupName)
-		data = append(data, pp)
-
-	}
-	c.JSON(http.StatusOK, response.DataResponse{
-		Total: uint(peerList.Total),
-		Data:  data,
-	})
+	c.JSON(http.StatusOK, gin.H{"total": total, "data": rows})
 }
-
-// Device
-// @Tags 群组
-// @Summary 设备
-// @Description 机器
-// @Accept  json
-// @Produce  json
-// @Param page query int false "页码"
-// @Param pageSize query int false "每页数量"
-// @Param status query int false "状态"
-// @Param accessible query string false "accessible"
-// @Success 200 {object} response.DataResponse
-// @Failure 500 {object} response.Response
-// @Router /device-group/accessible [get]
-// @Security BearerAuth
 func (g *Group) Device(c *gin.Context) {
-	u := service.AllService.UserService.CurUser(c)
-	if !service.AllService.UserService.IsAdmin(u) {
-		response.Error(c, "Permission denied")
+	page, err := apiReq.ClientPage(c.Request.URL.Query())
+	if err != nil {
+		clientFailure(c, err)
 		return
 	}
-	allGroup := service.AllService.GroupService.DeviceGroupList(1, 999, nil)
-
-	c.JSON(http.StatusOK, response.DataResponse{
-		Total: 0,
-		Data:  allGroup.DeviceGroups,
-	})
+	store, actor, ctx, cancel, ok := clientOperation(c)
+	if !ok {
+		return
+	}
+	defer cancel()
+	total, rows, err := store.DeviceGroups(ctx, actor, page)
+	if err != nil {
+		clientFailure(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"total": total, "data": rows})
 }

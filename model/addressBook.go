@@ -25,6 +25,7 @@ type AddressBook struct {
 	Password         string                 `json:"password" gorm:"default:'';not null;"`
 	Hostname         string                 `json:"hostname" gorm:"default:'';not null;"`
 	Alias            string                 `json:"alias" gorm:"default:'';not null;"`
+	Note             string                 `json:"note" gorm:"type:text;not null;"`
 	Platform         string                 `json:"platform" gorm:"default:'';not null;"`
 	Tags             custom_types.AutoJson  `json:"tags" gorm:"not null;" swaggertype:"array,string"`
 	Hash             string                 `json:"hash" gorm:"default:'';not null;"`

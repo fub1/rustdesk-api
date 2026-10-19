@@ -7,10 +7,9 @@ import (
 	"github.com/lejianwen/rustdesk-api/v2/global"
 	requstform "github.com/lejianwen/rustdesk-api/v2/http/request/api"
 	"github.com/lejianwen/rustdesk-api/v2/http/response"
-	"github.com/lejianwen/rustdesk-api/v2/http/response/api"
+	"github.com/lejianwen/rustdesk-api/v2/internal/clientcompat"
 	"github.com/lejianwen/rustdesk-api/v2/model"
 	"github.com/lejianwen/rustdesk-api/v2/service"
-	"github.com/lejianwen/rustdesk-api/v2/utils"
 	"net/http"
 	"strconv"
 	"strings"
@@ -30,29 +29,33 @@ type Ab struct {
 // @Router /ab [get]
 // @Security BearerAuth
 func (a *Ab) Ab(c *gin.Context) {
-	user := service.AllService.UserService.CurUser(c)
-
-	al := service.AllService.AddressBookService.ListByUserIdAndCollectionId(user.Id, 0, 1, 1000)
-	tags := service.AllService.TagService.ListByUserIdAndCollectionId(user.Id, 0)
-
-	tagColors := map[string]uint{}
-	//将tags中的name转成一个以逗号分割的字符串
-	var tagNames []string
-	for _, tag := range tags.Tags {
-		tagNames = append(tagNames, tag.Name)
-		tagColors[tag.Name] = tag.Color
+	store, actor, ctx, cancel, ok := clientOperation(c)
+	if !ok {
+		return
 	}
-	tgc, _ := json.Marshal(tagColors)
-	res := &api.AbList{
-		Peers:     al.AddressBooks,
-		Tags:      tagNames,
-		TagColors: string(tgc),
+	defer cancel()
+	peers, tags, err := store.Personal(ctx, actor)
+	if err != nil {
+		clientFailure(c, err)
+		return
 	}
-	data, _ := json.Marshal(res)
-	c.JSON(http.StatusOK, gin.H{
-		"data": string(data),
-		//"licensed_devices": 999,
-	})
+	names := make([]string, 0, len(tags))
+	colors := map[string]uint{}
+	for _, tag := range tags {
+		names = append(names, tag.Name)
+		colors[tag.Name] = tag.Color
+	}
+	encodedColors, err := json.Marshal(colors)
+	if err != nil {
+		clientFailure(c, err)
+		return
+	}
+	data, err := json.Marshal(gin.H{"peers": peers, "tags": names, "tag_colors": string(encodedColors)})
+	if err != nil {
+		clientFailure(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"data": string(data)})
 }
 
 // UpAb
@@ -67,34 +70,25 @@ func (a *Ab) Ab(c *gin.Context) {
 // @Router /ab [post]
 // @Security BearerAuth
 func (a *Ab) UpAb(c *gin.Context) {
-	abf := &requstform.AddressBookForm{}
-	err := c.ShouldBindJSON(&abf)
-	if err != nil {
-		response.Error(c, response.TranslateMsg(c, "ParamsError")+err.Error())
+	var outer requstform.AddressBookForm
+	if !clientBody(c, &outer, false) {
+		clientFailure(c, clientcompat.ErrInput)
 		return
 	}
-	abd := &requstform.AddressBookFormData{}
-	err = json.Unmarshal([]byte(abf.Data), abd)
-	if err != nil {
-		response.Error(c, response.TranslateMsg(c, "ParamsError")+err.Error())
+	var document clientcompat.Document
+	if json.Unmarshal([]byte(outer.Data), &document) != nil {
+		clientFailure(c, clientcompat.ErrInput)
 		return
 	}
-	tc := map[string]uint{}
-	err = json.Unmarshal([]byte(abd.TagColors), &tc)
-	if err != nil {
-		response.Error(c, response.TranslateMsg(c, "ParamsError")+err.Error())
+	store, actor, ctx, cancel, ok := clientOperation(c)
+	if !ok {
 		return
 	}
-	user := service.AllService.UserService.CurUser(c)
-
-	err = service.AllService.AddressBookService.UpdateAddressBook(abd.Peers, user.Id)
-	if err != nil {
-		response.Error(c, response.TranslateMsg(c, "OperationFailed")+err.Error())
+	defer cancel()
+	if err := store.ReplacePersonal(ctx, actor, document); err != nil {
+		clientFailure(c, err)
 		return
 	}
-
-	service.AllService.TagService.UpdateTags(user.Id, tc)
-
 	c.JSON(http.StatusOK, nil)
 }
 
@@ -110,21 +104,17 @@ func (a *Ab) UpAb(c *gin.Context) {
 // @Router /ab/tags/{guid} [post]
 // @Security BearerAuth
 func (a *Ab) PTags(c *gin.Context) {
-	u := service.AllService.UserService.CurUser(c)
-	guid := c.Param("guid")
-	_, uid, cid, err := a.CheckGuid(u, guid)
+	store, actor, ctx, cancel, ok := clientOperation(c)
+	if !ok {
+		return
+	}
+	defer cancel()
+	tags, err := store.Tags(ctx, actor, c.Param("guid"))
 	if err != nil {
-		response.Error(c, response.TranslateMsg(c, err.Error()))
+		clientFailure(c, err)
 		return
 	}
-
-	//check privileges
-	if !service.AllService.AddressBookService.CheckUserReadPrivilege(u, uid, cid) {
-		response.Error(c, response.TranslateMsg(c, "NoAccess"))
-		return
-	}
-	tags := service.AllService.TagService.ListByUserIdAndCollectionId(uid, cid)
-	c.JSON(http.StatusOK, tags.Tags)
+	c.JSON(http.StatusOK, tags)
 }
 
 // TagAdd
@@ -387,63 +377,22 @@ func (a *Ab) Settings(c *gin.Context) {
 // @Router /ab/shared/profiles [post]
 // @Security BearerAuth
 func (a *Ab) SharedProfiles(c *gin.Context) {
-
-	var res []*api.SharedProfilesPayload
-
-	user := service.AllService.UserService.CurUser(c)
-	myAbCollectionList := service.AllService.AddressBookService.ListCollectionByUserId(user.Id)
-	for _, ab := range myAbCollectionList.AddressBookCollection {
-		res = append(res, &api.SharedProfilesPayload{
-			Guid:  a.ComposeGuid(user.GroupId, user.Id, ab.Id),
-			Name:  ab.Name,
-			Owner: user.Username,
-			Rule:  model.ShareAddressBookRuleRuleFullControl,
-		})
+	page, err := requstform.ClientPage(c.Request.URL.Query())
+	if err != nil {
+		clientFailure(c, err)
+		return
 	}
-
-	allAbIds := make(map[uint]int) //用map去重，并保留最大Rule
-	allUserIds := make(map[uint]*model.User)
-	rules := service.AllService.AddressBookService.CollectionReadRules(user)
-	for _, rule := range rules {
-		//先判断是否存在
-		r, ok := allAbIds[rule.CollectionId]
-		if ok {
-			//再判断权限大小
-			if r < rule.Rule {
-				allAbIds[rule.CollectionId] = rule.Rule
-			}
-		} else {
-			allAbIds[rule.CollectionId] = rule.Rule
-			allUserIds[rule.UserId] = nil
-		}
-
+	store, actor, ctx, cancel, ok := clientOperation(c)
+	if !ok {
+		return
 	}
-	abids := utils.Keys(allAbIds)
-	collections := service.AllService.AddressBookService.ListCollectionByIds(abids)
-
-	ids := utils.Keys(allUserIds)
-	allUsers := service.AllService.UserService.ListByIds(ids)
-	for _, u := range allUsers {
-		allUserIds[u.Id] = u
+	defer cancel()
+	total, rows, err := store.Profiles(ctx, actor, page)
+	if err != nil {
+		clientFailure(c, err)
+		return
 	}
-
-	for _, collection := range collections {
-		_u, ok := allUserIds[collection.UserId]
-		if !ok {
-			continue
-		}
-		res = append(res, &api.SharedProfilesPayload{
-			Guid:  a.ComposeGuid(_u.GroupId, _u.Id, collection.Id),
-			Name:  collection.Name,
-			Owner: _u.Username,
-			Rule:  allAbIds[collection.Id],
-		})
-	}
-
-	c.JSON(http.StatusOK, gin.H{
-		"total": 0, //len(res),
-		"data":  res,
-	})
+	c.JSON(http.StatusOK, gin.H{"total": total, "data": rows})
 }
 
 // ParseGuid
@@ -534,26 +483,22 @@ func (a *Ab) CheckGuid(cu *model.User, guid string) (gid, uid, cid uint, err err
 // @Router /ab/peers [post]
 // @Security BearerAuth
 func (a *Ab) Peers(c *gin.Context) {
-	u := service.AllService.UserService.CurUser(c)
-	guid := c.Query("ab")
-	_, uid, cid, err := a.CheckGuid(u, guid)
+	page, err := requstform.ClientPage(c.Request.URL.Query())
 	if err != nil {
-		response.Error(c, response.TranslateMsg(c, err.Error()))
+		clientFailure(c, err)
 		return
 	}
-
-	//check privileges
-	if !service.AllService.AddressBookService.CheckUserReadPrivilege(u, uid, cid) {
-		response.Error(c, response.TranslateMsg(c, "NoAccess"))
+	store, actor, ctx, cancel, ok := clientOperation(c)
+	if !ok {
 		return
 	}
-
-	al := service.AllService.AddressBookService.ListByUserIdAndCollectionId(uid, cid, 1, 1000)
-	c.JSON(http.StatusOK, gin.H{
-		"total":            al.Total,
-		"data":             al.AddressBooks,
-		"licensed_devices": 99999,
-	})
+	defer cancel()
+	total, rows, err := store.Peers(ctx, actor, c.Query("ab"), page)
+	if err != nil {
+		clientFailure(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"total": total, "data": rows, "licensed_devices": 99999})
 }
 
 // PeerAdd
@@ -568,45 +513,18 @@ func (a *Ab) Peers(c *gin.Context) {
 // @Router /ab/peer/add/{guid} [post]
 // @Security BearerAuth
 func (a *Ab) PeerAdd(c *gin.Context) {
-	// forceAlwaysRelay永远是字符串"false"
-	//f := &gin.H{}
-	f := &requstform.PersonalAddressBookForm{}
-	err := c.ShouldBindJSON(f)
-	if err != nil {
-		response.Error(c, response.TranslateMsg(c, "ParamsError")+err.Error())
+	var input clientcompat.PeerInput
+	if !clientBody(c, &input, false) {
+		clientFailure(c, clientcompat.ErrInput)
 		return
 	}
-
-	u := service.AllService.UserService.CurUser(c)
-	guid := c.Param("guid")
-	_, uid, cid, err := a.CheckGuid(u, guid)
-	if err != nil {
-		response.Error(c, response.TranslateMsg(c, err.Error()))
+	store, actor, ctx, cancel, ok := clientOperation(c)
+	if !ok {
 		return
 	}
-
-	//check privileges
-	if !service.AllService.AddressBookService.CheckUserWritePrivilege(u, uid, cid) {
-		response.Error(c, response.TranslateMsg(c, "NoAccess"))
-		return
-	}
-
-	//fmt.Println(f)
-	f.UserId = uid
-	ab := f.ToAddressBook()
-	ab.CollectionId = cid
-	if ab.Platform == "" || ab.Username == "" || ab.Hostname == "" {
-		peer := service.AllService.PeerService.FindById(ab.Id)
-		if peer.RowId != 0 {
-			ab.Platform = service.AllService.AddressBookService.PlatformFromOs(peer.Os)
-			ab.Username = peer.Username
-			ab.Hostname = peer.Hostname
-		}
-	}
-
-	err = service.AllService.AddressBookService.AddAddressBook(ab)
-	if err != nil {
-		response.Error(c, response.TranslateMsg(c, "OperationFailed")+err.Error())
+	defer cancel()
+	if err := store.Add(ctx, actor, c.Param("guid"), input); err != nil {
+		clientFailure(c, err)
 		return
 	}
 	c.String(http.StatusOK, "")
@@ -672,55 +590,18 @@ func (a *Ab) PeerDel(c *gin.Context) {
 // @Router /ab/peer/update/{guid} [put]
 // @Security BearerAuth
 func (a *Ab) PeerUpdate(c *gin.Context) {
-	f := gin.H{}
-	//f := &requstform.PersonalAddressBookForm{}
-	err := c.ShouldBindJSON(&f)
-	if err != nil {
-		response.Error(c, response.TranslateMsg(c, "ParamsError")+err.Error())
+	var patch clientcompat.Patch
+	if !clientBody(c, &patch, true) {
+		clientFailure(c, clientcompat.ErrInput)
 		return
 	}
-	u := service.AllService.UserService.CurUser(c)
-	guid := c.Param("guid")
-	_, uid, cid, err := a.CheckGuid(u, guid)
-	if err != nil {
-		response.Error(c, response.TranslateMsg(c, err.Error()))
-		return
-	}
-
-	//check privileges
-	if !service.AllService.AddressBookService.CheckUserWritePrivilege(u, uid, cid) {
-		response.Error(c, response.TranslateMsg(c, "NoAccess"))
-		return
-	}
-	//fmt.Println(f)
-	//判断f["Id"]是否存在
-	fid, ok := f["id"]
+	store, actor, ctx, cancel, ok := clientOperation(c)
 	if !ok {
-		response.Error(c, response.TranslateMsg(c, "ParamsError"))
 		return
 	}
-	fidstr := fid.(string)
-
-	ab := service.AllService.AddressBookService.InfoByUserIdAndIdAndCid(uid, fidstr, cid)
-	if ab == nil || ab.RowId == 0 {
-		response.Error(c, response.TranslateMsg(c, "ItemNotFound"))
-		return
-	}
-	//允许的字段
-	allowUp := []string{"password", "hash", "tags", "alias"}
-	//f中的字段如果不在allowUp中，就删除
-	for k := range f {
-		if !utils.InArray(k, allowUp) {
-			delete(f, k)
-		}
-	}
-	//fmt.Println(f)
-	if tags, _ok := f["tags"]; _ok {
-		f["tags"], _ = json.Marshal(tags)
-	}
-	err = service.AllService.AddressBookService.UpdateByMap(ab, f)
-	if err != nil {
-		response.Error(c, response.TranslateMsg(c, "OperationFailed")+err.Error())
+	defer cancel()
+	if err := store.Patch(ctx, actor, c.Param("guid"), patch); err != nil {
+		clientFailure(c, err)
 		return
 	}
 	c.String(http.StatusOK, "")

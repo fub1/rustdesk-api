@@ -166,7 +166,9 @@ func (s *AddressBookService) UpdateByMap(u *model.AddressBook, data map[string]i
 
 // UpdateAll 更新
 func (s *AddressBookService) UpdateAll(u *model.AddressBook) error {
-	return DB.Model(u).Select("*").Omit("created_at").Updates(u).Error
+	// Legacy admin forms do not carry note; only the client presence-aware
+	// patch may change or explicitly clear it.
+	return DB.Model(u).Select("*").Omit("created_at", "note").Updates(u).Error
 }
 
 // ShareByWebClient 分享

@@ -90,6 +90,9 @@ func currentVersion(db *gorm.DB) (uint, bool, error) {
 }
 
 func migrateSchema(db *gorm.DB) error {
+	if err := prepareAddressBookNote(db); err != nil {
+		return fmt.Errorf("migrate schema: %w", err)
+	}
 	if err := db.AutoMigrate(
 		&model.Version{}, &model.User{}, &model.UserToken{}, &model.Tag{},
 		&model.AddressBook{}, &model.Peer{}, &model.Group{}, &model.UserThird{},
@@ -111,6 +114,31 @@ func migrateSchema(db *gorm.DB) error {
 		if err := db.Migrator().CreateConstraint(&model.OIDCIdentity{}, "User"); err != nil {
 			return fmt.Errorf("create OIDC identity user foreign key: %w", err)
 		}
+	}
+	return nil
+}
+
+// An existing table needs a nullable column first so rows can be backfilled
+// before enforcing NOT NULL. Avoid TEXT DEFAULT syntax unsupported by older
+// MySQL releases. Application creates explicitly write the string zero value.
+// Also repair NULLs after a partially completed MySQL DDL migration retry.
+type nullableAddressBookNote struct {
+	Note *string `gorm:"type:text"`
+}
+
+func (nullableAddressBookNote) TableName() string { return "address_books" }
+
+func prepareAddressBookNote(db *gorm.DB) error {
+	if !db.Migrator().HasTable(&model.AddressBook{}) {
+		return nil
+	}
+	if !db.Migrator().HasColumn(&model.AddressBook{}, "Note") {
+		if err := db.Migrator().AddColumn(&nullableAddressBookNote{}, "Note"); err != nil {
+			return fmt.Errorf("add address book note: %w", err)
+		}
+	}
+	if err := db.Model(&nullableAddressBookNote{}).Where("note IS NULL").UpdateColumn("note", "").Error; err != nil {
+		return fmt.Errorf("backfill address book note: %w", err)
 	}
 	return nil
 }
