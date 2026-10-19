@@ -7,6 +7,7 @@ import (
 	"errors"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/lejianwen/rustdesk-api/v2/internal/auth"
@@ -18,17 +19,35 @@ const principalKey = "rustdesk.auth.principal"
 
 type Translate func(language, message string) string
 
+// FailureEvent deliberately carries no credential, request data or cause text.
+type FailureEvent struct{ Operation, Code, Route string }
+type Options struct {
+	Translate Translate
+	Timeout   time.Duration
+	Observe   func(FailureEvent)
+}
+
+const DefaultTimeout = 5 * time.Second
+
 type Handler struct {
 	sessions                *auth.Service
 	translate               Translate
 	userRoutes, adminRoutes []string
+	timeout                 time.Duration
+	observe                 func(FailureEvent)
 }
 
-func New(sessions *auth.Service, translate Translate) (*Handler, error) {
-	if sessions == nil || translate == nil {
+func New(sessions *auth.Service, options Options) (*Handler, error) {
+	if sessions == nil || options.Translate == nil {
 		return nil, errors.New("session service and translator are required")
 	}
-	return &Handler{sessions: sessions, translate: translate, userRoutes: append([]string(nil), model.UserRouteNames...), adminRoutes: append([]string(nil), model.AdminRouteNames...)}, nil
+	if options.Timeout < 0 {
+		return nil, errors.New("authentication timeout must not be negative")
+	}
+	if options.Timeout == 0 {
+		options.Timeout = DefaultTimeout
+	}
+	return &Handler{sessions: sessions, translate: options.Translate, timeout: options.Timeout, observe: options.Observe, userRoutes: append([]string(nil), model.UserRouteNames...), adminRoutes: append([]string(nil), model.AdminRouteNames...)}, nil
 }
 
 func Current(c *gin.Context) (auth.Principal, bool) {
@@ -73,7 +92,9 @@ func requestToken(c *gin.Context, admin bool) string {
 func (h *Handler) authenticate(admin, optional bool) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		token := requestToken(c, admin)
-		p, err := h.sessions.Authenticate(c.Request.Context(), token)
+		ctx, cancel := context.WithTimeout(c.Request.Context(), h.timeout)
+		p, err := h.sessions.Authenticate(ctx, token)
+		cancel()
 		if err != nil {
 			if optional && (errors.Is(err, auth.ErrUnauthenticated) || errors.Is(err, auth.ErrDisabled)) {
 				c.Next()
@@ -98,7 +119,7 @@ func (h *Handler) RequireAdmin() gin.HandlerFunc {
 			return
 		}
 		if err := auth.RequireAdministrator(p); err != nil {
-			h.fail(c, true, err)
+			h.failOperation(c, true, err, "authorize")
 			return
 		}
 		c.Next()
@@ -106,24 +127,42 @@ func (h *Handler) RequireAdmin() gin.HandlerFunc {
 }
 
 func (h *Handler) fail(c *gin.Context, admin bool, err error) {
+	h.failOperation(c, admin, err, "authenticate")
+}
+
+func (h *Handler) failOperation(c *gin.Context, admin bool, err error, operation string) {
 	status, code, message := http.StatusServiceUnavailable, 503, "Service unavailable"
+	result := "unavailable"
 	switch {
 	case errors.Is(err, context.DeadlineExceeded):
+		result = "deadline"
 		status, code, message = 504, 504, "Authentication timed out"
 	case errors.Is(err, context.Canceled):
+		result = "canceled"
 		status, code, message = 408, 408, "Request canceled"
 	case errors.Is(err, auth.ErrForbidden):
+		result = "forbidden"
 		status, code, message = 200, 403, h.translate(c.GetHeader("Accept-Language"), "NoAccess")
 	case errors.Is(err, auth.ErrInvalidInput):
+		result = "invalid_input"
 		status, code, message = 200, 101, h.translate(c.GetHeader("Accept-Language"), "ParamsError")
 	case errors.Is(err, auth.ErrDisabled):
+		result = "disabled"
 		status, code, message = 401, 401, "Unauthorized"
 	case errors.Is(err, auth.ErrUnauthenticated):
+		result = "unauthenticated"
 		status, code, message = 401, 403, "Unauthorized"
 		if admin {
 			status = 200
 			message = h.translate(c.GetHeader("Accept-Language"), "NeedLogin")
 		}
+	}
+	if h.observe != nil {
+		route := c.FullPath()
+		if route == "" {
+			route = "<unmatched>"
+		}
+		h.observe(FailureEvent{Operation: operation, Code: result, Route: route})
 	}
 	if admin {
 		c.AbortWithStatusJSON(status, gin.H{"code": code, "message": message, "data": nil})
@@ -175,8 +214,10 @@ func (h *Handler) logout(c *gin.Context, admin bool) {
 		h.fail(c, admin, auth.ErrUnauthenticated)
 		return
 	}
-	if err := h.sessions.Revoke(c.Request.Context(), p, p.Session.Token); err != nil {
-		h.fail(c, admin, err)
+	ctx, cancel := context.WithTimeout(c.Request.Context(), h.timeout)
+	defer cancel()
+	if err := h.sessions.Revoke(ctx, p, p.Session.Token); err != nil {
+		h.failOperation(c, admin, err, "revoke")
 		return
 	}
 	if admin {
@@ -212,8 +253,10 @@ func (h *Handler) revokeIDs(c *gin.Context, ids []uint) {
 		h.fail(c, true, auth.ErrUnauthenticated)
 		return
 	}
-	if err := h.sessions.RevokeSessions(c.Request.Context(), p, ids); err != nil {
-		h.fail(c, true, err)
+	ctx, cancel := context.WithTimeout(c.Request.Context(), h.timeout)
+	defer cancel()
+	if err := h.sessions.RevokeSessions(ctx, p, ids); err != nil {
+		h.failOperation(c, true, err, "revoke_sessions")
 		return
 	}
 	c.JSON(200, gin.H{"code": 0, "message": "success", "data": nil})

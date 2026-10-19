@@ -19,8 +19,9 @@ Windows retains Gin's listener. Full bounded shutdown, heartbeat flushing and
 resource ownership are the later ARCH 06 work, not claimed by this slice.
 
 Gin process mode is configured at bootstrap. Handler construction leaves mode
-and default writers unchanged. Recovery logging uses a synchronous adapter
-instead of opening a logrus pipe worker. Templates are validated up front and
+and default writers unchanged. Panic recovery logs only static metadata through
+the captured logger, without a request dump, panic value or pipe worker.
+Templates are validated up front and
 resolved under the configured `gin.resources-path/templates`; this corrects the
 previous hardcoded working-directory lookup. Debug template reload is retained.
 Missing resources, inconsistent service installation, missing/broken templates
@@ -84,6 +85,40 @@ password/LDAP/OIDC issuance, config presentation or all business CRUD support
 independent full application instances. Details, rollout semantics and remaining
 work are in [auth-sessions.md](auth-sessions.md).
 
+## ARCH 03: bounded requests and safe error reporting
+
+The session HTTP adapter applies `app.auth-timeout` (default 5 seconds, negative
+values rejected) to each authentication/revocation operation, derived from the
+original request context. Earlier parent deadlines and cancellation are retained.
+GORM operations and transactions use that context. Cancellation/deadline takes
+precedence if a dependency returns another error after the context has expired.
+There is no detached database goroutine returning a fake timeout while continuing
+to grant access or mutate sessions in the background.
+
+Authentication, disabled user, forbidden, input error, dependency outage,
+cancellation and deadline have separate stable classifications. New session
+responses never include SQL, token, DSN or error-cause text. The optional failure
+observer receives only operation, classification and matched route template.
+
+Request/recovery logging omits query strings, concrete path parameters, headers,
+cookies, body and panic values. Operation logging omits sensitive resource bodies,
+retains bounded target metadata and redacts ordinary structured details before
+truncation. This protects these common logging outlets; legacy OIDC/provider
+errors and other business logging still require review as those flows migrate.
+
+Management Socket commands now inherit the request context and share one 5-second
+IPv6/IPv4 budget. Connected reads/writes have deadlines, cancellation closes the
+connection, and fallback is allowed only before a connection succeeds. A write
+followed by failure is not replayed. The existing command/response protocol and
+legacy command business service remain in place; complete stream framing and
+server lifecycle are later work.
+
+Real SQLite plus GORM operation callbacks exercise in-flight query, renew and
+revoke cancellation/deadlines, dependency errors and rollback. These tests verify
+context propagation and persisted outcomes, not the interrupt latency of every
+database driver's native slow query. HTTP tests verify 408/504/503 responses and
+safe failure events; temporary loopback servers verify Socket budgets/no replay.
+
 ## ARCH 08: isolated verification
 
 Push and pull-request validation runs all packages with the race detector,
@@ -96,8 +131,7 @@ commands are in [testing.md](testing.md); validation does not publish releases.
 
 ## Next slices
 
-ARCH 03 adds bounded dependency calls and safe logging to the new session
-boundary. ARCH 04/05 cover
+ARCH 04/05 cover
 identity/session transactions and atomic OIDC login attempts; the startup
 migration failure portion is already documented in
 [migration-recovery.md](migration-recovery.md). ARCH 06 completes lifecycle

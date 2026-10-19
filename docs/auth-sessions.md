@@ -63,6 +63,33 @@ does not unbind devices; it checks current administrator status and uses the
 instance store. Deleting an already absent ID now returns idempotent success.
 Empty/malformed HTTP deletion requests are rejected.
 
+## Request bounds and error reporting (ARCH 03)
+
+`app.auth-timeout` configures the budget for each session authentication,
+logout or administrator revocation operation. The default/zero value is 5 seconds;
+negative values fail construction. Each operation derives a child context from
+the request, without changing the whole legacy request's lifetime. A parent
+deadline can shorten this budget. SQL queries, renewal and revocation transactions
+all receive it. Cancellation maps to HTTP 408; a deadline maps to HTTP 504;
+dependency failures map to 503. They are never converted into a credential error
+or optional anonymous success, and no underlying cause is returned to the client.
+
+The injected failure observer receives only a stable operation, result code and
+matched route template. The standard bootstrap logs those fields at DEBUG level.
+It receives no raw error/token/user snapshot. Request logs use matched templates;
+unmatched routes use a constant placeholder. Recovery never formats a panic value
+or dumps headers/query/body/cookies. Sensitive operation-log resources retain
+only bounded target metadata, while ordinary structured details are recursively
+redacted before truncation; malformed/oversized data is omitted. Existing stored
+operation-log rows are not retroactively sanitized by this source change.
+
+Connected hbbs/hbbr management calls share a 5-second total budget and inherit
+request cancellation. Only a failed dial can fall back to another address;
+once connected, failed writes/reads do not trigger command replay. A timeout
+after sending means the outcome may be unknown, and the response reports failure
+without claiming the remote command was rolled back. Full legacy request/OIDC
+timeouts, login-flow TTLs and graceful shutdown remain their separate later work.
+
 ## Boundaries for the next slices
 
 Password/LDAP login, registration, legacy OIDC challenge/callback/poll and their

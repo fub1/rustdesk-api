@@ -62,7 +62,13 @@ var rootCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		authHTTP, err := httpapi.New(sessions, http.LegacyTranslator())
+		authLogger := global.Logger
+		authHTTP, err := httpapi.New(sessions, httpapi.Options{
+			Translate: http.LegacyTranslator(), Timeout: global.Config.App.AuthTimeout,
+			Observe: func(event httpapi.FailureEvent) {
+				authLogger.WithFields(map[string]interface{}{"component": "auth", "operation": event.Operation, "result": event.Code, "route": event.Route}).Debug("Authentication request failed")
+			},
+		})
 		if err != nil {
 			return err
 		}

@@ -8,10 +8,18 @@ import (
 
 // Logger 日志中间件
 func Logger() gin.HandlerFunc {
+	return requestLogger(global.Logger)
+}
+
+func requestLogger(logger *logrus.Logger) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		global.Logger.WithFields(
+		route := c.FullPath()
+		if route == "" {
+			route = "<unmatched>"
+		}
+		logger.WithFields(
 			logrus.Fields{
-				"uri":    c.Request.URL,
+				"route":  route,
 				"ip":     c.ClientIP(),
 				"method": c.Request.Method,
 			}).Debug("Request")

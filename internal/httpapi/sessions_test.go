@@ -32,7 +32,7 @@ type installation struct {
 }
 
 // These installations coexist without importing or changing global/service.
-func newInstallation(t *testing.T, name string, signed bool) *installation {
+func newInstallation(t *testing.T, name string, signed bool, options ...httpapi.Options) *installation {
 	t.Helper()
 	db, err := gorm.Open(sqlite.Open(filepath.Join(t.TempDir(), "sessions.db")), &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)})
 	if err != nil {
@@ -68,7 +68,14 @@ func newInstallation(t *testing.T, name string, signed bool) *installation {
 	if err != nil {
 		t.Fatal(err)
 	}
-	h, err := httpapi.New(sessions, func(_, id string) string { return id })
+	opts := httpapi.Options{}
+	if len(options) > 0 {
+		opts = options[0]
+	}
+	if opts.Translate == nil {
+		opts.Translate = func(_, id string) string { return id }
+	}
+	h, err := httpapi.New(sessions, opts)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -128,9 +128,9 @@ func (r *Rustdesk) SendCmd(c *gin.Context) {
 		port = global.Config.Admin.RelayServerPort
 	}
 
-	res, err := service.AllService.ServerCmdService.SendCmd(port, rc.Cmd, rc.Option)
+	res, err := service.AllService.ServerCmdService.SendCmdContext(c.Request.Context(), port, rc.Cmd, rc.Option)
 	if err != nil {
-		response.Fail(c, 101, err.Error())
+		response.Fail(c, 101, response.TranslateMsg(c, "OperationFailed"))
 		return
 	}
 	response.Success(c, res)

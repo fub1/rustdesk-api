@@ -79,7 +79,7 @@ func installLegacyFixture(t *testing.T) *httpapi.Handler {
 	if err != nil {
 		t.Fatal(err)
 	}
-	handler, err := httpapi.New(sessions, LegacyTranslator())
+	handler, err := httpapi.New(sessions, httpapi.Options{Translate: LegacyTranslator()})
 	if err != nil {
 		t.Fatal(err)
 	}

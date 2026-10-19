@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"io"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/gin-gonic/gin"
 	"github.com/lejianwen/rustdesk-api/v2/model"
@@ -19,14 +20,19 @@ var skipOpLogPaths = map[string]bool{
 	"/api/admin/login-options": true,
 	"/api/admin/oidc/auth":     true,
 	// 以下 POST 接口实际是查询操作，不修改数据
-	"/api/admin/peer/simpleData":  true,
-	"/api/admin/user/myOauth":     true,
-	"/api/admin/user/groupUsers":  true,
+	"/api/admin/peer/simpleData": true,
+	"/api/admin/user/myOauth":    true,
+	"/api/admin/user/groupUsers": true,
 }
 
 // OperationLog 操作日志中间件，记录所有 POST 写操作
 // 必须在 BackendUserAuth 之后使用，以便获取当前用户信息
 func OperationLog() gin.HandlerFunc {
+	writer := service.AllService.OperationLogService
+	return operationLog(writer.Create)
+}
+
+func operationLog(write func(*model.OperationLog) error) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		// 只记录 POST 请求
 		if c.Request.Method != "POST" {
@@ -46,13 +52,7 @@ func OperationLog() gin.HandlerFunc {
 			return
 		}
 
-		// 读取请求体并还原
-		var bodyStr string
-		bodyBytes, err := io.ReadAll(c.Request.Body)
-		if err == nil {
-			bodyStr = string(bodyBytes)
-			c.Request.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
-		}
+		bodyStr := operationBody(c)
 
 		// sendCmd 接口中部分 cmd 是查询操作，不记录日志
 		if c.Request.URL.Path == "/api/admin/rustdesk/sendCmd" {
@@ -62,42 +62,34 @@ func OperationLog() gin.HandlerFunc {
 			}
 		}
 
-		// 截断过长的请求体（如上传图片）
-		if len(bodyStr) > 2000 {
-			bodyStr = bodyStr[:2000] + "...[truncated]"
-		}
-
 		// 执行后续处理
 		c.Next()
 
 		// 异步写入日志，不阻塞响应
-		user := service.AllService.UserService.CurUser(c)
-		if user == nil || user.Id == 0 {
+		value, _ := c.Get("curUser")
+		user, ok := value.(*model.User)
+		if !ok || user == nil || user.Id == 0 {
 			return
 		}
 
-		path := c.Request.URL.Path
+		path := c.FullPath()
+		if path == "" {
+			path = "<unmatched>"
+		}
 		ip := c.ClientIP()
 		resource, op := parsePath(path)
 
 		// 合并 handler 通过 c.Set("op_log_extra", ...) 补充的实体信息（如删除时请求体只有 ID）
-		detail := bodyStr
+		var extra gin.H
 		if v, ok := c.Get("op_log_extra"); ok {
-			if extra, ok := v.(gin.H); ok && len(extra) > 0 {
-				detail = mergeDetail(bodyStr, extra)
-			}
+			extra, _ = v.(gin.H)
 		}
-
+		record := &model.OperationLog{
+			UserId: user.Id, Username: user.Username, Op: op, Resource: resource,
+			Detail: operationDetail(path, bodyStr, extra), Ip: ip, Path: path,
+		}
 		go func() {
-			_ = service.AllService.OperationLogService.Create(&model.OperationLog{
-				UserId:   user.Id,
-				Username: user.Username,
-				Op:       op,
-				Resource: resource,
-				Detail:   detail,
-				Ip:       ip,
-				Path:     path,
-			})
+			_ = write(record)
 		}()
 	}
 }
@@ -140,12 +132,13 @@ func parsePath(path string) (resource, op string) {
 
 // isReadOnlyCmd 判断 sendCmd 请求体中的 cmd 是否为只读操作
 // 只读命令：
-//   blocklist/blacklist - 查黑名单
-//   u - 查用量
-//   rs - 查中继服务器
-//   ml - 查必须登录状态
-//   h - 查帮助/能力
-//   aur - 查中继状态（带 option 时是写操作，不能跳过）
+//
+//	blocklist/blacklist - 查黑名单
+//	u - 查用量
+//	rs - 查中继服务器
+//	ml - 查必须登录状态
+//	h - 查帮助/能力
+//	aur - 查中继状态（带 option 时是写操作，不能跳过）
 func isReadOnlyCmd(body string) bool {
 	// 始终是读操作的命令
 	for _, cmd := range []string{"blocklist", "blacklist", "u", "rs", "ml", "h"} {
@@ -162,18 +155,114 @@ func isReadOnlyCmd(body string) bool {
 	return false
 }
 
-// mergeDetail 把 handler 补充的实体信息合并进请求体摘要（JSON），同名键以补充值为准
-func mergeDetail(body string, extra gin.H) string {
+const maxOperationBodyBytes = 64 << 10
+
+type operationBodyReader struct {
+	io.Reader
+	io.Closer
+}
+
+// Limit the audit copy while leaving the complete body available to the handler.
+func operationBody(c *gin.Context) string {
+	if c.Request.Body == nil {
+		return ""
+	}
+	original := c.Request.Body
+	body, err := io.ReadAll(io.LimitReader(original, maxOperationBodyBytes+1))
+	c.Request.Body = operationBodyReader{io.MultiReader(bytes.NewReader(body), original), original}
+	if err != nil || len(body) > maxOperationBodyBytes {
+		return ""
+	}
+	return string(body)
+}
+
+func operationDetail(path, body string, extra gin.H) string {
 	m := map[string]interface{}{}
 	if err := json.Unmarshal([]byte(body), &m); err != nil {
+		m = map[string]interface{}{"details": "[OMITTED]"}
+	}
+	if m == nil {
 		m = map[string]interface{}{}
 	}
 	for k, v := range extra {
 		m[k] = v
 	}
+	// Normalize extra values too, so nested typed maps and structs cannot bypass redaction.
 	b, err := json.Marshal(m)
 	if err != nil {
-		return body
+		return `{"details":"[OMITTED]"}`
+	}
+	if err := json.Unmarshal(b, &m); err != nil {
+		return `{"details":"[OMITTED]"}`
+	}
+	resource, _ := parsePath(path)
+	switch resource {
+	case "user", "oauth", "user_token", "peer_strategy", "config":
+		metadata := map[string]interface{}{"details": "[OMITTED]"}
+		for _, key := range []string{"id", "ids", "username", "peer_id", "alias", "op", "oauth_type"} {
+			if value, ok := m[key]; ok && safeOperationMetadata(value) {
+				metadata[key] = value
+			}
+		}
+		m = metadata
+	default:
+		redactOperationValue(m)
+	}
+	b, err = json.Marshal(m)
+	if err != nil {
+		return `{"details":"[OMITTED]"}`
+	}
+	if len(b) > 2000 {
+		end := 2000
+		for !utf8.Valid(b[:end]) {
+			end--
+		}
+		return string(b[:end]) + "...[truncated]"
 	}
 	return string(b)
+}
+
+func safeOperationMetadata(value interface{}) bool {
+	switch value := value.(type) {
+	case string:
+		return len(value) <= 256
+	case float64:
+		return true
+	case []interface{}:
+		for _, item := range value {
+			switch item := item.(type) {
+			case string:
+				if len(item) > 256 {
+					return false
+				}
+			case float64:
+			default:
+				return false
+			}
+		}
+		return true
+	default:
+		return false
+	}
+}
+
+func redactOperationValue(value interface{}) {
+	switch value := value.(type) {
+	case map[string]interface{}:
+		for key, field := range value {
+			normalized := strings.ToLower(strings.NewReplacer("_", "", "-", "").Replace(key))
+			if strings.Contains(normalized, "password") || strings.Contains(normalized, "secret") || normalized == "hash" ||
+				strings.Contains(normalized, "token") || strings.HasSuffix(normalized, "key") ||
+				normalized == "authorization" || normalized == "cookie" || normalized == "code" ||
+				normalized == "state" || normalized == "nonce" || normalized == "codeverifier" || normalized == "verifier" {
+				value[key] = "[REDACTED]"
+			} else {
+				redactOperationValue(field)
+			}
+		}
+	case []interface{}:
+		for _, item := range value {
+			redactOperationValue(item)
+		}
+	}
 }

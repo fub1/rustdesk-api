@@ -99,11 +99,11 @@ func (s *Service) Authenticate(ctx context.Context, token string) (Principal, er
 	if s.verifier != nil {
 		var err error
 		claims, err = s.verifier.Verify(ctx, token, now)
+		if contextErr := ctx.Err(); contextErr != nil {
+			return Principal{}, contextErr
+		}
 		if err != nil {
 			return Principal{}, dependencyError("verify session token", err)
-		}
-		if err := ctx.Err(); err != nil {
-			return Principal{}, err
 		}
 		claims.ExpiresAt = claims.ExpiresAt.UTC().Truncate(time.Second)
 		if claims.UserID == 0 || !claims.ExpiresAt.After(now) {
@@ -111,11 +111,11 @@ func (s *Service) Authenticate(ctx context.Context, token string) (Principal, er
 		}
 	}
 	user, session, err := s.store.Lookup(ctx, token)
+	if contextErr := ctx.Err(); contextErr != nil {
+		return Principal{}, contextErr
+	}
 	if err != nil {
 		return Principal{}, dependencyError("lookup session", err)
-	}
-	if err := ctx.Err(); err != nil {
-		return Principal{}, err
 	}
 	session.ExpiresAt = session.ExpiresAt.UTC().Truncate(time.Second)
 	if user.ID == 0 || session.ID == 0 || session.UserID != user.ID || session.Token != token || !session.ExpiresAt.After(now) {
@@ -138,6 +138,9 @@ func (s *Service) Authenticate(ctx context.Context, token string) (Principal, er
 		}
 		if expiresAt.After(session.ExpiresAt) {
 			renewed, err := s.store.Renew(ctx, session, expiresAt, now)
+			if contextErr := ctx.Err(); contextErr != nil {
+				return Principal{}, contextErr
+			}
 			if err != nil {
 				return Principal{}, dependencyError("renew session", err)
 			}
@@ -166,10 +169,14 @@ func (s *Service) Revoke(ctx context.Context, principal Principal, token string)
 	if token == "" || principal.User.ID == 0 || principal.Session.ID == 0 || principal.Session.UserID != principal.User.ID || principal.Session.Token != token {
 		return ErrUnauthenticated
 	}
-	if err := s.store.Revoke(ctx, principal.Session); err != nil {
+	err := s.store.Revoke(ctx, principal.Session)
+	if contextErr := ctx.Err(); contextErr != nil {
+		return contextErr
+	}
+	if err != nil {
 		return dependencyError("revoke session", err)
 	}
-	return ctx.Err()
+	return nil
 }
 
 // RequireAdministrator checks an authenticated principal using its database
@@ -214,10 +221,14 @@ func (s *Service) RevokeSessions(ctx context.Context, actor Principal, ids []uin
 	if len(ids) == 0 {
 		return nil
 	}
-	if err := s.store.DeleteSessions(ctx, ids); err != nil {
+	err = s.store.DeleteSessions(ctx, ids)
+	if contextErr := ctx.Err(); contextErr != nil {
+		return contextErr
+	}
+	if err != nil {
 		return dependencyError("delete sessions", err)
 	}
-	return ctx.Err()
+	return nil
 }
 
 func dependencyError(operation string, err error) error {

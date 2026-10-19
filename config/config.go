@@ -19,6 +19,7 @@ type App struct {
 	RegisterStatus   int           `mapstructure:"register-status"`
 	ShowSwagger      int           `mapstructure:"show-swagger"`
 	TokenExpire      time.Duration `mapstructure:"token-expire"`
+	AuthTimeout      time.Duration `mapstructure:"auth-timeout"`
 	WebSso           bool          `mapstructure:"web-sso"`
 	DisablePwdLogin  bool          `mapstructure:"disable-pwd-login"`
 	CaptchaThreshold int           `mapstructure:"captcha-threshold"`

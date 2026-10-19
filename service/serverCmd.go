@@ -1,9 +1,13 @@
 package service
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"github.com/lejianwen/rustdesk-api/v2/model"
+	"io"
 	"net"
+	"strconv"
 	"time"
 )
 
@@ -41,49 +45,68 @@ func (is *ServerCmdService) Create(u *model.ServerCmd) error {
 
 // SendCmd 发送命令
 func (is *ServerCmdService) SendCmd(port int, cmd string, arg string) (string, error) {
-	//组装命令
-	cmd = cmd + " " + arg
-	res, err := is.SendSocketCmd("v6", port, cmd)
-	if err == nil {
-		return res, nil
+	return is.SendCmdContext(context.Background(), port, cmd, arg)
+}
+
+func (is *ServerCmdService) SendCmdContext(ctx context.Context, port int, cmd, arg string) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	command := cmd + " " + arg
+	res, connected, err := sendSocketCmd(ctx, "v6", port, command)
+	if err == nil || connected || ctx.Err() != nil {
+		return res, err
 	}
-	//v6连接失败，尝试v4
-	res, err = is.SendSocketCmd("v4", port, cmd)
-	if err == nil {
-		return res, nil
-	}
-	return "", err
+	res, _, err = sendSocketCmd(ctx, "v4", port, command)
+	return res, err
 }
 
 // SendSocketCmd
 func (is *ServerCmdService) SendSocketCmd(ty string, port int, cmd string) (string, error) {
-	addr := "[::1]"
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	res, _, err := sendSocketCmd(ctx, ty, port, cmd)
+	return res, err
+}
+
+// Once connected, a write or read failure cannot safely be retried on another address.
+func sendSocketCmd(ctx context.Context, ty string, port int, cmd string) (string, bool, error) {
+	addr := "::1"
 	tcp := "tcp6"
 	if ty == "v4" {
 		tcp = "tcp"
 		addr = "127.0.0.1"
 	}
-	conn, err := net.Dial(tcp, fmt.Sprintf("%s:%v", addr, port))
+	conn, err := (&net.Dialer{}).DialContext(ctx, tcp, net.JoinHostPort(addr, strconv.Itoa(port)))
 	if err != nil {
-		Logger.Debugf("%s connect to id server failed: %v", ty, err)
-		return "", err
+		return "", false, err
 	}
 	defer conn.Close()
-	//发送命令
-	_, err = conn.Write([]byte(cmd))
+	stop := context.AfterFunc(ctx, func() { _ = conn.Close() })
+	defer stop()
+	if deadline, ok := ctx.Deadline(); ok {
+		if err := conn.SetDeadline(deadline); err != nil {
+			return "", true, err
+		}
+	}
+	n, err := conn.Write([]byte(cmd))
 	if err != nil {
-		Logger.Debugf("%s send cmd failed: %v", ty, err)
-		return "", err
+		if ctx.Err() != nil {
+			err = ctx.Err()
+		}
+		return "", true, err
 	}
-	time.Sleep(100 * time.Millisecond)
-	//读取返回
+	if n != len(cmd) {
+		return "", true, io.ErrShortWrite
+	}
 	buf := make([]byte, 1024)
-	n, err := conn.Read(buf)
-	if err != nil && err.Error() != "EOF" {
-		Logger.Debugf("%s read response failed: %v", ty, err)
-		return "", err
+	n, err = conn.Read(buf)
+	if ctx.Err() != nil {
+		return "", true, ctx.Err()
 	}
-	return string(buf[:n]), nil
+	if err != nil && !errors.Is(err, io.EOF) {
+		return "", true, fmt.Errorf("read server command response: %w", err)
+	}
+	return string(buf[:n]), true, nil
 }
 
 func (is *ServerCmdService) Update(f *model.ServerCmd) error {

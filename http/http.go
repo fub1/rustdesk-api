@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"html/template"
-	"io"
 	"net/http"
 	"path/filepath"
 	"strings"
@@ -17,7 +16,6 @@ import (
 	"github.com/lejianwen/rustdesk-api/v2/internal/httpapi"
 	"github.com/lejianwen/rustdesk-api/v2/service"
 	"github.com/nicksnyder/go-i18n/v2/i18n"
-	"github.com/sirupsen/logrus"
 )
 
 // NewHandler borrows the resources installed by the legacy bootstrap. It does
@@ -47,14 +45,10 @@ func NewHandler(sessions *httpapi.Handler) (*gin.Engine, error) {
 		}
 	}
 
-	var recoveryWriter io.Writer = gin.DefaultErrorWriter
-	if global.Config.Gin.Mode == gin.ReleaseMode {
-		recoveryWriter = recoveryLogWriter{global.Logger}
-	}
 	g.NoRoute(func(c *gin.Context) {
 		c.String(http.StatusNotFound, "404 not found")
 	})
-	g.Use(middleware.Logger(), middleware.Limiter(), gin.RecoveryWithWriter(recoveryWriter), middleware.Gzip())
+	g.Use(middleware.Logger(), middleware.Limiter(), middleware.Recovery(global.Logger), middleware.Gzip())
 	g.SetHTMLTemplate(templates)
 	if gin.IsDebugging() {
 		// Preserve Gin's template reload behavior after validating the files.
@@ -124,12 +118,4 @@ func validateLegacyResources() error {
 		return errors.New("HTTP handler requires one consistent legacy service installation")
 	}
 	return nil
-}
-
-// Unlike logrus.WriterLevel this synchronous adapter owns no pipe or goroutine.
-type recoveryLogWriter struct{ logger *logrus.Logger }
-
-func (w recoveryLogWriter) Write(p []byte) (int, error) {
-	w.logger.Error(strings.TrimSpace(string(p)))
-	return len(p), nil
 }
