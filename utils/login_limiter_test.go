@@ -3,9 +3,31 @@ package utils
 import (
 	"fmt"
 	"github.com/google/uuid"
+	"sync"
 	"testing"
 	"time"
 )
+
+func TestLoginLimiterConcurrentClose(t *testing.T) {
+	limiter := NewLoginLimiter(SecurityPolicy{CaptchaThreshold: -1})
+	var callers sync.WaitGroup
+	for i := 0; i < 8; i++ {
+		callers.Add(1)
+		go func() { defer callers.Done(); limiter.Close() }()
+	}
+	done := make(chan struct{})
+	go func() { callers.Wait(); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("concurrent Close did not wait for worker termination promptly")
+	}
+	select {
+	case <-limiter.cleanupDone:
+	default:
+		t.Fatal("Close returned while cleanup worker was still running")
+	}
+}
 
 type MockCaptchaProvider struct{}
 

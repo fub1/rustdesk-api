@@ -45,6 +45,8 @@ type LoginLimiter struct {
 	bannedIPs   map[string]BanRecord
 	provider    CaptchaProvider
 	cleanupStop chan struct{}
+	cleanupDone chan struct{}
+	stopOnce    sync.Once
 }
 
 var defaultSecurityPolicy = SecurityPolicy{
@@ -69,6 +71,7 @@ func NewLoginLimiter(policy SecurityPolicy) *LoginLimiter {
 		captchas:    make(map[string]CaptchaMeta),
 		bannedIPs:   make(map[string]BanRecord),
 		cleanupStop: make(chan struct{}),
+		cleanupDone: make(chan struct{}),
 	}
 	go ll.cleanupRoutine()
 	return ll
@@ -213,6 +216,7 @@ func (ll *LoginLimiter) CheckSecurityStatus(ip string) (banned bool, captchaRequ
 
 // 后台清理任务
 func (ll *LoginLimiter) cleanupRoutine() {
+	defer close(ll.cleanupDone)
 	ticker := time.NewTicker(1 * time.Minute)
 	defer ticker.Stop()
 
@@ -224,6 +228,12 @@ func (ll *LoginLimiter) cleanupRoutine() {
 			return
 		}
 	}
+}
+
+// Close stops and waits for the cleanup worker created by NewLoginLimiter.
+func (ll *LoginLimiter) Close() {
+	ll.stopOnce.Do(func() { close(ll.cleanupStop) })
+	<-ll.cleanupDone
 }
 
 // 内部工具方法

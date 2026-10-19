@@ -44,10 +44,25 @@ var rootCmd = &cobra.Command{
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 		return InitGlobal()
 	},
-	Run: func(cmd *cobra.Command, args []string) {
-		service.AllService.PeerService.StartHeartbeatFlusher()
+	RunE: func(cmd *cobra.Command, args []string) error {
+		if err := http.ConfigureFramework(global.Config.Gin.Mode); err != nil {
+			return err
+		}
+		global.LoginLimiter = utils.NewLoginLimiter(utils.SecurityPolicy{
+			CaptchaThreshold: global.Config.App.CaptchaThreshold,
+			BanThreshold:     global.Config.App.BanThreshold,
+			AttemptsWindow:   10 * time.Minute,
+			BanDuration:      30 * time.Minute,
+		})
+		global.LoginLimiter.RegisterProvider(utils.B64StringCaptchaProvider{})
+		defer global.LoginLimiter.Close()
+		handler, err := http.NewHandler()
+		if err != nil {
+			return err
+		}
 		global.Logger.Info("API SERVER START")
-		http.ApiInit()
+		service.AllService.PeerService.StartHeartbeatFlusher()
+		return http.Run(handler, global.Config.Gin.ApiAddr)
 	},
 }
 
@@ -238,13 +253,6 @@ func InitGlobal() (err error) {
 		return err
 	}
 
-	global.LoginLimiter = utils.NewLoginLimiter(utils.SecurityPolicy{
-		CaptchaThreshold: global.Config.App.CaptchaThreshold,
-		BanThreshold:     global.Config.App.BanThreshold,
-		AttemptsWindow:   10 * time.Minute,
-		BanDuration:      30 * time.Minute,
-	})
-	global.LoginLimiter.RegisterProvider(utils.B64StringCaptchaProvider{})
 	return nil
 }
 
