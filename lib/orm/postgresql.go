@@ -14,7 +14,7 @@ type PostgresqlConfig struct {
 	MaxOpenConns int
 }
 
-func NewPostgresql(conf *PostgresqlConfig, logwriter logger.Writer) *gorm.DB {
+func NewPostgresql(conf *PostgresqlConfig, logwriter logger.Writer) (*gorm.DB, error) {
 	db, err := gorm.Open(postgres.Open(conf.Dsn), &gorm.Config{
 		DisableForeignKeyConstraintWhenMigrating: true,
 		Logger: logger.New(
@@ -29,17 +29,7 @@ func NewPostgresql(conf *PostgresqlConfig, logwriter logger.Writer) *gorm.DB {
 		),
 	})
 	if err != nil {
-		fmt.Println(err)
+		return nil, closeFailedOpen(db, fmt.Errorf("open postgresql database: %w", err))
 	}
-	sqlDB, err2 := db.DB()
-	if err2 != nil {
-		fmt.Println(err2)
-	}
-	// SetMaxIdleConns 设置空闲连接池中连接的最大数量
-	sqlDB.SetMaxIdleConns(conf.MaxIdleConns)
-
-	// SetMaxOpenConns 设置打开数据库连接的最大数量。
-	sqlDB.SetMaxOpenConns(conf.MaxOpenConns)
-
-	return db
+	return configureConnection(db, conf.MaxIdleConns, conf.MaxOpenConns)
 }

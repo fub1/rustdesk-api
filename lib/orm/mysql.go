@@ -14,7 +14,7 @@ type MysqlConfig struct {
 	MaxOpenConns int
 }
 
-func NewMysql(mysqlConf *MysqlConfig, logwriter logger.Writer) *gorm.DB {
+func NewMysql(mysqlConf *MysqlConfig, logwriter logger.Writer) (*gorm.DB, error) {
 	db, err := gorm.Open(mysql.New(mysql.Config{
 		DSN:               mysqlConf.Dsn, // DSN data source name
 		DefaultStringSize: 256,           // string 类型字段的默认长度
@@ -36,17 +36,7 @@ func NewMysql(mysqlConf *MysqlConfig, logwriter logger.Writer) *gorm.DB {
 		),
 	})
 	if err != nil {
-		fmt.Println(err)
+		return nil, closeFailedOpen(db, fmt.Errorf("open mysql database: %w", err))
 	}
-	sqlDB, err2 := db.DB()
-	if err2 != nil {
-		fmt.Println(err2)
-	}
-	// SetMaxIdleConns 设置空闲连接池中连接的最大数量
-	sqlDB.SetMaxIdleConns(mysqlConf.MaxIdleConns)
-
-	// SetMaxOpenConns 设置打开数据库连接的最大数量。
-	sqlDB.SetMaxOpenConns(mysqlConf.MaxOpenConns)
-
-	return db
+	return configureConnection(db, mysqlConf.MaxIdleConns, mysqlConf.MaxOpenConns)
 }

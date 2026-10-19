@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"strconv"
@@ -10,17 +11,18 @@ import (
 	"github.com/lejianwen/rustdesk-api/v2/config"
 	"github.com/lejianwen/rustdesk-api/v2/global"
 	"github.com/lejianwen/rustdesk-api/v2/http"
+	"github.com/lejianwen/rustdesk-api/v2/internal/database"
 	"github.com/lejianwen/rustdesk-api/v2/lib/cache"
 	"github.com/lejianwen/rustdesk-api/v2/lib/jwt"
 	"github.com/lejianwen/rustdesk-api/v2/lib/lock"
 	"github.com/lejianwen/rustdesk-api/v2/lib/logger"
 	"github.com/lejianwen/rustdesk-api/v2/lib/orm"
 	"github.com/lejianwen/rustdesk-api/v2/lib/upload"
-	"github.com/lejianwen/rustdesk-api/v2/model"
 	"github.com/lejianwen/rustdesk-api/v2/service"
 	"github.com/lejianwen/rustdesk-api/v2/utils"
 	"github.com/nicksnyder/go-i18n/v2/i18n"
 	"github.com/spf13/cobra"
+	"gorm.io/gorm"
 )
 
 const DatabaseVersion = 274
@@ -39,10 +41,11 @@ const DatabaseVersion = 274
 var rootCmd = &cobra.Command{
 	Use:   "apimain",
 	Short: "RUSTDESK API SERVER",
-	PersistentPreRun: func(cmd *cobra.Command, args []string) {
-		InitGlobal()
+	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+		return InitGlobal()
 	},
 	Run: func(cmd *cobra.Command, args []string) {
+		service.AllService.PeerService.StartHeartbeatFlusher()
 		global.Logger.Info("API SERVER START")
 		http.ApiInit()
 	},
@@ -105,12 +108,36 @@ func init() {
 }
 func main() {
 	if err := rootCmd.Execute(); err != nil {
-		global.Logger.Error(err)
+		if global.Logger != nil {
+			global.Logger.Error(err)
+		} else {
+			fmt.Fprintln(os.Stderr, err)
+		}
 		os.Exit(1)
 	}
 }
 
-func InitGlobal() {
+func InitGlobal() (err error) {
+	// Failed startup must release opened connections and never reach HTTP or
+	// background tasks. Workers are initialized only after migrations succeed.
+	defer func() {
+		if err == nil {
+			return
+		}
+		if global.DB != nil {
+			if sqlDB, dbErr := global.DB.DB(); dbErr != nil {
+				err = errors.Join(err, dbErr)
+			} else {
+				err = errors.Join(err, sqlDB.Close())
+			}
+			global.DB = nil
+		}
+		if global.Redis != nil {
+			err = errors.Join(err, global.Redis.Close())
+			global.Redis = nil
+		}
+	}()
+
 	//配置解析
 	global.Viper = config.Init(&global.Config, global.ConfigPath)
 
@@ -153,7 +180,7 @@ func InitGlobal() {
 			global.Config.Mysql.Tls,
 		)
 
-		global.DB = orm.NewMysql(&orm.MysqlConfig{
+		global.DB, err = orm.NewMysql(&orm.MysqlConfig{
 			Dsn:          dsn,
 			MaxIdleConns: global.Config.Gorm.MaxIdleConns,
 			MaxOpenConns: global.Config.Gorm.MaxOpenConns,
@@ -168,17 +195,21 @@ func InitGlobal() {
 			global.Config.Postgresql.Sslmode,
 			global.Config.Postgresql.TimeZone,
 		)
-		global.DB = orm.NewPostgresql(&orm.PostgresqlConfig{
+		global.DB, err = orm.NewPostgresql(&orm.PostgresqlConfig{
 			Dsn:          dsn,
 			MaxIdleConns: global.Config.Gorm.MaxIdleConns,
 			MaxOpenConns: global.Config.Gorm.MaxOpenConns,
 		}, global.Logger)
 	} else {
 		//sqlite
-		global.DB = orm.NewSqlite(&orm.SqliteConfig{
+		global.DB, err = orm.NewSqlite(&orm.SqliteConfig{
 			MaxIdleConns: global.Config.Gorm.MaxIdleConns,
 			MaxOpenConns: global.Config.Gorm.MaxOpenConns,
 		}, global.Logger)
+	}
+
+	if err != nil {
+		return fmt.Errorf("initialize database: %w", err)
 	}
 
 	//validator
@@ -203,8 +234,9 @@ func InitGlobal() {
 	//service
 	service.New(&global.Config, global.DB, global.Logger, global.Jwt, global.Lock)
 
-	// 启动心跳缓冲后台刷写协程
-	service.AllService.PeerService.StartHeartbeatFlusher()
+	if err := DatabaseAutoUpdate(); err != nil {
+		return err
+	}
 
 	global.LoginLimiter = utils.NewLoginLimiter(utils.SecurityPolicy{
 		CaptchaThreshold: global.Config.App.CaptchaThreshold,
@@ -213,150 +245,42 @@ func InitGlobal() {
 		BanDuration:      30 * time.Minute,
 	})
 	global.LoginLimiter.RegisterProvider(utils.B64StringCaptchaProvider{})
-	DatabaseAutoUpdate()
+	return nil
 }
 
-func DatabaseAutoUpdate() {
-	version := DatabaseVersion
-
-	db := global.DB
-
-	if global.Config.Gorm.Type == config.TypeMysql {
-		//检查存不存在数据库，不存在则创建
-		dbName := db.Migrator().CurrentDatabase()
-		if dbName == "" {
-			dbName = global.Config.Mysql.Dbname
-			// 移除 DSN 中的数据库名称，以便初始连接时不指定数据库
-			dsnWithoutDB := fmt.Sprintf("%s:%s@(%s)/%s?charset=utf8mb4&parseTime=True&loc=Local",
-				global.Config.Mysql.Username,
-				global.Config.Mysql.Password,
-				global.Config.Mysql.Addr,
-				"",
-			)
-
-			//新链接
-			dbWithoutDB := orm.NewMysql(&orm.MysqlConfig{
-				Dsn: dsnWithoutDB,
-			}, global.Logger)
-			// 获取底层的 *sql.DB 对象，并确保在程序退出时关闭连接
-			sqlDBWithoutDB, err := dbWithoutDB.DB()
-			if err != nil {
-				global.Logger.Errorf("获取底层 *sql.DB 对象失败: %v", err)
-				return
-			}
-			defer func() {
-				if err := sqlDBWithoutDB.Close(); err != nil {
-					global.Logger.Errorf("关闭连接失败: %v", err)
-				}
-			}()
-
-			err = dbWithoutDB.Exec("CREATE DATABASE IF NOT EXISTS " + dbName + " DEFAULT CHARSET utf8mb4").Error
-			if err != nil {
-				global.Logger.Error(err)
-				return
-			}
-		}
-	}
-
-	if !db.Migrator().HasTable(&model.Version{}) {
-		Migrate(uint(version))
-	} else {
-		//查找最后一个version
-		var v model.Version
-		db.Last(&v)
-		if v.Version < uint(version) {
-			Migrate(uint(version))
-		}
-
-		// 245迁移
-		if v.Version < 245 {
-			//oauths 表的 oauth_type 字段设置为 op同样的值
-			db.Exec("update oauths set oauth_type = op")
-			db.Exec("update oauths set issuer = 'https://accounts.google.com' where op = 'google'")
-			db.Exec("update user_thirds set oauth_type = third_type, op = third_type")
-			//通过email迁移旧的google授权
-			uts := make([]model.UserThird, 0)
-			db.Where("oauth_type = ?", "google").Find(&uts)
-			for _, ut := range uts {
-				if ut.UserId > 0 {
-					db.Model(&model.User{}).Where("id = ?", ut.UserId).Update("email", ut.OpenId)
-				}
-			}
-		}
-		if v.Version < 246 {
-			db.Exec("update oauths set issuer = 'https://accounts.google.com' where op = 'google' and issuer is null")
-		}
-	}
-
+func DatabaseAutoUpdate() error {
+	return Migrate(DatabaseVersion)
 }
-func Migrate(version uint) {
-	global.Logger.Info("Migrating....", version)
-	err := global.DB.AutoMigrate(
-		&model.Version{},
-		&model.User{},
-		&model.UserToken{},
-		&model.Tag{},
-		&model.AddressBook{},
-		&model.Peer{},
-		&model.Group{},
-		&model.UserThird{},
-		&model.Oauth{},
-		&model.LoginLog{},
-		&model.ShareRecord{},
-		&model.AuditConn{},
-		&model.AuditFile{},
-		&model.AddressBookCollection{},
-		&model.AddressBookCollectionRule{},
-		&model.ServerCmd{},
-		&model.DeviceGroup{},
-		&model.PeerStrategy{},
-		&model.OperationLog{},
-	)
-	if err != nil {
-		global.Logger.Error("migrate err :=>", err)
-	}
-	global.DB.Create(&model.Version{Version: version})
-	//如果是初次则创建一个默认用户
-	var vc int64
-	global.DB.Model(&model.Version{}).Count(&vc)
-	if vc == 1 {
+
+func Migrate(version uint) error {
+	var initialPassword string
+	err := database.Update(global.DB, version, func(tx *gorm.DB) error {
 		localizer := global.Localizer("")
-		defaultGroup, _ := localizer.LocalizeMessage(&i18n.Message{
-			ID: "DefaultGroup",
-		})
-		group := &model.Group{
-			Name: defaultGroup,
-			Type: model.GroupTypeDefault,
-		}
-		service.AllService.GroupService.Create(group)
-
-		shareGroup, _ := localizer.LocalizeMessage(&i18n.Message{
-			ID: "ShareGroup",
-		})
-		groupShare := &model.Group{
-			Name: shareGroup,
-			Type: model.GroupTypeShare,
-		}
-		service.AllService.GroupService.Create(groupShare)
-		//是true
-		is_admin := true
-		admin := &model.User{
-			Username: "admin",
-			Nickname: "Admin",
-			Status:   model.COMMON_STATUS_ENABLE,
-			IsAdmin:  &is_admin,
-			GroupId:  1,
-		}
-
-		// 生成随机密码
-		pwd := utils.RandomString(8)
-		global.Logger.Info("Admin Password Is: ", pwd)
-		var err error
-		admin.Password, err = utils.EncryptPassword(pwd)
+		defaultGroup, err := localizer.LocalizeMessage(&i18n.Message{ID: "DefaultGroup"})
 		if err != nil {
-			global.Logger.Fatalf("failed to generate admin password: %v", err)
+			return fmt.Errorf("localize default group: %w", err)
 		}
-		global.DB.Create(admin)
+		shareGroup, err := localizer.LocalizeMessage(&i18n.Message{ID: "ShareGroup"})
+		if err != nil {
+			return fmt.Errorf("localize shared group: %w", err)
+		}
+		pwd := utils.RandomString(8)
+		hash, err := utils.EncryptPassword(pwd)
+		if err != nil {
+			return fmt.Errorf("hash initial admin password: %w", err)
+		}
+		if err := database.SeedInitialData(tx, defaultGroup, shareGroup, hash); err != nil {
+			return err
+		}
+		initialPassword = pwd
+		return nil
+	})
+	if err != nil {
+		return err
 	}
-
+	// Publish credentials only once their data and version have committed.
+	if initialPassword != "" {
+		global.Logger.Info("Admin Password Is: ", initialPassword)
+	}
+	return nil
 }

@@ -9,12 +9,18 @@ import (
 )
 
 type SqliteConfig struct {
+	// Dsn defaults to the existing application database; tests can use isolated files.
+	Dsn          string
 	MaxIdleConns int
 	MaxOpenConns int
 }
 
-func NewSqlite(sqliteConf *SqliteConfig, logwriter logger.Writer) *gorm.DB {
-	db, err := gorm.Open(sqlite.Open("./data/rustdeskapi.db?_txlock=immediate&_journal_mode=WAL&_busy_timeout=5000"), &gorm.Config{
+func NewSqlite(sqliteConf *SqliteConfig, logwriter logger.Writer) (*gorm.DB, error) {
+	dsn := sqliteConf.Dsn
+	if dsn == "" {
+		dsn = "./data/rustdeskapi.db?_txlock=immediate&_journal_mode=WAL&_busy_timeout=5000"
+	}
+	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{
 		DisableForeignKeyConstraintWhenMigrating: true,
 		Logger: logger.New(
 			logwriter, // io writer
@@ -28,17 +34,7 @@ func NewSqlite(sqliteConf *SqliteConfig, logwriter logger.Writer) *gorm.DB {
 		),
 	})
 	if err != nil {
-		fmt.Println(err)
+		return nil, closeFailedOpen(db, fmt.Errorf("open sqlite database: %w", err))
 	}
-	sqlDB, err2 := db.DB()
-	if err2 != nil {
-		fmt.Println(err2)
-	}
-	// SetMaxIdleConns 设置空闲连接池中连接的最大数量
-	sqlDB.SetMaxIdleConns(sqliteConf.MaxIdleConns)
-
-	// SetMaxOpenConns 设置打开数据库连接的最大数量。
-	sqlDB.SetMaxOpenConns(sqliteConf.MaxOpenConns)
-
-	return db
+	return configureConnection(db, sqliteConf.MaxIdleConns, sqliteConf.MaxOpenConns)
 }
