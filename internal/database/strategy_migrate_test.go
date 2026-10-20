@@ -23,7 +23,7 @@ func TestUpgrade277StrategyStateIsEmptyAndHasPeerForeignKey(t *testing.T) {
 				t.Fatal(err)
 			}
 			peer := model.Peer{Id: "existing", Uuid: "uuid"}
-			if err := db.Create(&peer).Error; err != nil {
+			if err := db.Omit("StrategyDefinitionID").Create(&peer).Error; err != nil {
 				t.Fatal(err)
 			}
 			if failVersion {

@@ -16,6 +16,7 @@ import (
 	"github.com/lejianwen/rustdesk-api/v2/config"
 	"github.com/lejianwen/rustdesk-api/v2/global"
 	"github.com/lejianwen/rustdesk-api/v2/internal/app"
+	"github.com/lejianwen/rustdesk-api/v2/internal/database"
 	"github.com/lejianwen/rustdesk-api/v2/internal/httpapi"
 	"github.com/lejianwen/rustdesk-api/v2/lib/cache"
 	"github.com/lejianwen/rustdesk-api/v2/lib/jwt"
@@ -136,6 +137,10 @@ func TestProductionAuthRouteOwnershipAndPrivileges(t *testing.T) {
 		t.Fatal("missing instance auth accepted")
 	}
 	if err := global.DB.AutoMigrate(&model.User{}, &model.UserToken{}, &model.Peer{}, &model.ServerCmd{}, &model.Oauth{}); err != nil {
+		t.Fatal(err)
+	}
+	// Use the runtime schema for current-model peer writes.
+	if err := database.Update(global.DB, 281, nil); err != nil {
 		t.Fatal(err)
 	}
 	global.Config.Admin.Hello = "Welcome {{username}}"

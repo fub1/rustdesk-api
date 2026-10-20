@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/lejianwen/rustdesk-api/v2/internal/clientcompat"
+	"github.com/lejianwen/rustdesk-api/v2/internal/database"
 	"github.com/lejianwen/rustdesk-api/v2/model"
 	"github.com/lejianwen/rustdesk-api/v2/model/custom_types"
 	"gorm.io/driver/sqlite"
@@ -54,6 +55,10 @@ func TestPersonalReplaceReportsCommitFailureWithoutPartialWrites(t *testing.T) {
 	t.Cleanup(func() { _ = pool.Close() })
 	pool.SetMaxOpenConns(1)
 	if err := db.AutoMigrate(&model.User{}, &model.AddressBook{}, &model.Tag{}, &model.Peer{}); err != nil {
+		t.Fatal(err)
+	}
+	// Use the runtime schema for current-model peer writes.
+	if err := database.Update(db, 281, nil); err != nil {
 		t.Fatal(err)
 	}
 	u := model.User{Username: "actor", GroupId: 1, Status: model.COMMON_STATUS_ENABLE}

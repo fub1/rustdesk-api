@@ -13,7 +13,7 @@ func TestPeerNoteMigrationFreshAndUpgrade279(t *testing.T) {
 				if err := Update(db, 278, seedTestData); err != nil {
 					t.Fatal(err)
 				}
-				if err := db.Create(&model.Peer{Id: "old", Uuid: "uuid"}).Error; err != nil {
+				if err := db.Omit("StrategyDefinitionID").Create(&model.Peer{Id: "old", Uuid: "uuid"}).Error; err != nil {
 					t.Fatal(err)
 				}
 				if err := db.Migrator().DropColumn(&model.Peer{}, "Note"); err != nil {

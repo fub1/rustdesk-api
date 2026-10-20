@@ -35,6 +35,11 @@ func Update(db *gorm.DB, target uint, seed func(*gorm.DB) error) error {
 			if err := migrateSchema(tx); err != nil {
 				return err
 			}
+			if target >= 281 {
+				if err := migratePeerStrategyDefinition(tx); err != nil {
+					return err
+				}
+			}
 		}
 		if !fresh {
 			if err := migrateHistoricalData(tx, current); err != nil {
@@ -53,6 +58,11 @@ func Update(db *gorm.DB, target uint, seed func(*gorm.DB) error) error {
 	if db.Dialector.Name() == "mysql" {
 		if err := migrateSchema(db); err != nil {
 			return err
+		}
+		if target >= 281 {
+			if err := migratePeerStrategyDefinition(db); err != nil {
+				return err
+			}
 		}
 	}
 	if err := db.Transaction(apply); err != nil {
@@ -99,9 +109,13 @@ func migrateSchema(db *gorm.DB) error {
 	if err := prepareAddressBookNote(db); err != nil {
 		return fmt.Errorf("migrate schema: %w", err)
 	}
+	var peerSchema any = &model.Peer{}
+	if db.Dialector.Name() == "sqlite" {
+		peerSchema = &sqliteMigrationPeer{}
+	}
 	if err := db.AutoMigrate(
 		&model.Version{}, &model.User{}, &model.UserToken{}, &model.Tag{},
-		&model.AddressBook{}, &model.Peer{}, &model.Group{}, &model.UserThird{},
+		&model.AddressBook{}, peerSchema, &model.Group{}, &model.UserThird{},
 		&model.Oauth{}, &model.OIDCIdentity{}, &model.LoginLog{}, &model.ShareRecord{}, &model.AuditConn{},
 		&model.AuditFile{}, &model.AuditDeliveryReceipt{}, &model.AddressBookCollection{}, &model.AddressBookCollectionRule{},
 		&model.ServerCmd{}, &model.DeviceGroup{}, &model.PeerStrategy{}, &model.PeerStrategyState{}, &model.OperationLog{},
@@ -128,6 +142,18 @@ func migrateSchema(db *gorm.DB) error {
 	}
 	return nil
 }
+
+// SQLite introspection normalizes an expression default to the empty string. Matching
+// that representation prevents a needless peers rebuild on every upgrade,
+// which would drop triggers/indexes and cascade dependent strategy state while
+// foreign_keys remains enabled inside the version transaction. MySQL retains
+// the expression default required for TEXT columns.
+type sqliteMigrationPeer struct {
+	model.Peer
+	Note string `gorm:"type:text;not null;default:''"`
+}
+
+func (sqliteMigrationPeer) TableName() string { return "peers" }
 
 // An existing table needs a nullable column first so rows can be backfilled
 // before enforcing NOT NULL. Avoid TEXT DEFAULT syntax unsupported by older

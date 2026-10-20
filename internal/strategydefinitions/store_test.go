@@ -39,7 +39,7 @@ func newFixture(t *testing.T) *fixture {
 	}
 	pool.SetMaxOpenConns(1)
 	t.Cleanup(func() { _ = pool.Close() })
-	if err := database.Update(db, 280, nil); err != nil {
+	if err := database.Update(db, 281, nil); err != nil {
 		t.Fatal(err)
 	}
 	yes := true

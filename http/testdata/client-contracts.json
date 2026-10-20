@@ -767,7 +767,8 @@
         "internal/integration/client_assignment_addressbook_test.go:TestClientAssignmentAddressBookExactScopeAndRollback",
         "internal/integration/client_assignment_addressbook_test.go:TestClientAssignmentAddressBookConcurrentClientTagWrites",
         "internal/integration/client_assignment_addressbook_test.go:TestClientAssignmentAddressBookConcurrentCollectionDelete",
-        "internal/integration/client_assignment_addressbook_test.go:TestLegacyCollectionRealStatementRollbackAndRetry"
+        "internal/integration/client_assignment_addressbook_test.go:TestLegacyCollectionRealStatementRollbackAndRetry",
+        "http/named_strategy_assignment_test.go:TestNamedStrategyProductionCLIHeartbeatAndDefinitionLifecycle"
       ],
       "fixture_status": "production_http_and_real_engine_partial_assignment_not_real_cli",
       "client_variants": [
@@ -803,7 +804,7 @@
       "field_freeze_status": "source_summary_not_complete_JSON_Schema",
       "verification_level": "production_router_http_sqlite_and_real_engine_store",
       "implementation_update": {
-        "task": "PRE02-B",
+        "task": "PRE02-D",
         "supported_fields": [
           "user_name",
           "device_group_name",
@@ -814,11 +815,12 @@
           "address_book_tag",
           "address_book_alias",
           "address_book_password",
-          "address_book_note"
+          "address_book_note",
+          "strategy_name"
         ],
         "semantics": "existing administrator and target checks; join/update one exact existing named book owned by explicit user_name or current peer owner, keep other books and Peer.AbId/Alias; omitted book texts preserve, empty clear; raw Password, one complete tag append/dedupe, missing tag color0; all duplicate scoped rows narrow-updated in same transaction",
-        "unsupported": "strategy_name and unknown fields rejected as whole request, including empty/null; book attachments require nonempty book name",
-        "schema": "unchanged version279; no new table or column in PRE02-B",
+        "unsupported": "unknown fields rejected as whole request; null/wrong types rejected; missing strategy name preserves, empty detaches SQL NULL",
+        "schema": "version281 approved nullable peers.strategy_definition_id FK RESTRICT plus nonunique index; version280 definition remains three columns",
         "real_client": "official --assign not run; no deployment"
       }
     },
@@ -2877,6 +2879,15 @@
       "ci": "exact commit Actions authoritative",
       "real_client": "no deployment or new official client acceptance",
       "remaining": "device relation model approved for following PRE02-D; CLI named assignment and heartbeat merge not yet enabled in this slice; strategy_name still whole-request rejected"
+    },
+    {
+      "task": "PRE02-D",
+      "source_inventory_unchanged": true,
+      "business_scope": "persistent named definition association via existing administrator CLI; live heartbeat default/named/device/real preset merge; safe reference-restricted deletion",
+      "schema": "version281 peers.strategy_definition_id nullable FK RESTRICT+nonunique index only; no copies/history/relation table",
+      "local_targeted_checks": "CGO1 core/HTTP, SQLite migrations preserving peer/history/trigger/index, MySQL/PostgreSQL281/FK/exact names/live merge/native conflict/actual COMMIT rollback-retry",
+      "ci": "exact commit Actions authoritative",
+      "real_client": "no new official --assign/live named policy application acceptance and no deployment"
     }
   ]
 }

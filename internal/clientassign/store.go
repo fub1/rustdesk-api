@@ -148,6 +148,13 @@ func (s *Store) Assign(ctx context.Context, actor auth.Principal, input Input) e
 			return ErrInput
 		}
 		values := map[string]any{}
+		if input.StrategyName.Present {
+			strategyID, err := assignmentStrategy(tx, input.StrategyName.Value)
+			if err != nil {
+				return err
+			}
+			values["strategy_definition_id"] = strategyID
+		}
 		if input.UserName.Present {
 			values["user_id"] = targetUser.Id
 		}

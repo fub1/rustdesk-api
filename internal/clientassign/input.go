@@ -26,6 +26,7 @@ type Input struct {
 	ID, UUID                                                                                string
 	UserName, DeviceGroupName, DeviceName, DeviceUsername, Note                             OptionalString
 	AddressBookName, AddressBookTag, AddressBookAlias, AddressBookPassword, AddressBookNote OptionalString
+	StrategyName                                                                            OptionalString
 }
 
 // Decode an exact whitelist, rejecting duplicate/unknown keys and null values.
@@ -42,7 +43,7 @@ func (input *Input) UnmarshalJSON(data []byte) error {
 	}
 	var value Input
 	var id, uuid OptionalString
-	fields := map[string]*OptionalString{"id": &id, "uuid": &uuid, "user_name": &value.UserName, "device_group_name": &value.DeviceGroupName, "device_name": &value.DeviceName, "device_username": &value.DeviceUsername, "note": &value.Note, "address_book_name": &value.AddressBookName, "address_book_tag": &value.AddressBookTag, "address_book_alias": &value.AddressBookAlias, "address_book_password": &value.AddressBookPassword, "address_book_note": &value.AddressBookNote}
+	fields := map[string]*OptionalString{"id": &id, "uuid": &uuid, "user_name": &value.UserName, "device_group_name": &value.DeviceGroupName, "device_name": &value.DeviceName, "device_username": &value.DeviceUsername, "note": &value.Note, "address_book_name": &value.AddressBookName, "address_book_tag": &value.AddressBookTag, "address_book_alias": &value.AddressBookAlias, "address_book_password": &value.AddressBookPassword, "address_book_note": &value.AddressBookNote, "strategy_name": &value.StrategyName}
 	seen := map[string]bool{}
 	for d.More() {
 		token, err := d.Token()
@@ -77,5 +78,5 @@ func (input Input) valid() bool {
 		(!input.DeviceGroupName.Present || input.DeviceGroupName.Value != "") &&
 		(!input.AddressBookName.Present || input.AddressBookName.Value != "") &&
 		(input.AddressBookName.Present || !(input.AddressBookTag.Present || input.AddressBookAlias.Present || input.AddressBookPassword.Present || input.AddressBookNote.Present)) &&
-		(input.UserName.Present || input.DeviceGroupName.Present || input.DeviceName.Present || input.DeviceUsername.Present || input.Note.Present || input.AddressBookName.Present)
+		(input.UserName.Present || input.DeviceGroupName.Present || input.DeviceName.Present || input.DeviceUsername.Present || input.Note.Present || input.AddressBookName.Present || input.StrategyName.Present)
 }

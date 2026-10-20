@@ -30,7 +30,7 @@ type definitionFixture struct {
 func newDefinitionFixture(t *testing.T) definitionFixture {
 	t.Helper()
 	f := newCompatFixture(t)
-	if err := database.Update(global.DB, 280, nil); err != nil {
+	if err := database.Update(global.DB, 281, nil); err != nil {
 		t.Fatal(err)
 	}
 	result := definitionFixture{f, global.DB}

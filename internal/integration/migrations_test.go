@@ -89,7 +89,8 @@ func TestRealDatabaseUpgrade275Through278(t *testing.T) {
 			t.Fatal("orphan state accepted")
 		}
 		peer := model.Peer{Id: "fk-peer", Uuid: "uuid"}
-		if err := db.Create(&peer).Error; err != nil {
+		// This test deliberately targets278, before the nullable definition FK.
+		if err := db.Omit("StrategyDefinitionID").Create(&peer).Error; err != nil {
 			t.Fatal(err)
 		}
 		state := model.PeerStrategyState{PeerRowID: peer.RowId, ManagedKeys: `["key"]`}

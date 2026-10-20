@@ -8,6 +8,7 @@ import (
 
 	"github.com/lejianwen/rustdesk-api/v2/global"
 	"github.com/lejianwen/rustdesk-api/v2/internal/clientsysinfo"
+	"github.com/lejianwen/rustdesk-api/v2/internal/database"
 	"github.com/lejianwen/rustdesk-api/v2/model"
 	"github.com/lejianwen/rustdesk-api/v2/service"
 	"gorm.io/driver/sqlite"
@@ -31,6 +32,10 @@ func TestSysInfoStoreInstancesNeverFollowLegacyGlobalDatabase(t *testing.T) {
 		}
 		t.Cleanup(func() { _ = pool.Close() })
 		if err := db.AutoMigrate(&model.Peer{}); err != nil {
+			t.Fatal(err)
+		}
+		// Use the runtime schema for current-model peer writes.
+		if err := database.Update(db, 281, nil); err != nil {
 			t.Fatal(err)
 		}
 		if err := db.Create(&model.Peer{Id: "device", UserId: uint(11 + i), Alias: fmt.Sprintf("managed-%d", i)}).Error; err != nil {

@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/lejianwen/rustdesk-api/v2/internal/database"
 	"github.com/lejianwen/rustdesk-api/v2/internal/heartbeat"
 	"github.com/lejianwen/rustdesk-api/v2/model"
 	"gorm.io/driver/sqlite"
@@ -21,6 +22,10 @@ func TestAtomicFlushFailureRetryAndNoTimeRegression(t *testing.T) {
 	pool, _ := db.DB()
 	t.Cleanup(func() { pool.Close() })
 	if err := db.AutoMigrate(&model.Peer{}); err != nil {
+		t.Fatal(err)
+	}
+	// Use the runtime schema for current-model peer writes.
+	if err := database.Update(db, 281, nil); err != nil {
 		t.Fatal(err)
 	}
 	a, b := model.Peer{Id: "a", LastOnlineTime: 10}, model.Peer{Id: "b", LastOnlineTime: 10}

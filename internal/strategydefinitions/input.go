@@ -50,6 +50,10 @@ func Decode(data []byte) (Input, error) {
 	return input, nil
 }
 
+// DecodeOptions shares the strict persisted-definition format with CLI and
+// heartbeat consumers. Legacy direct-device policies keep their own contract.
+func DecodeOptions(raw []byte) (map[string]string, error) { return parseOptions(raw) }
+
 func (input *Input) UnmarshalJSON(data []byte) error {
 	if !utf8.Valid(data) {
 		return ErrInput

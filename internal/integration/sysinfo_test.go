@@ -22,6 +22,7 @@ func sysinfoString(value string) clientsysinfo.OptionalString {
 
 func TestClientSysinfoSnapshotsRealEngines(t *testing.T) {
 	forEngines(t, func(t *testing.T, f *fixture) {
+		upgrade(t, f.DB, 281)
 		owner := model.User{Username: "sysinfo-owner", GroupId: 1, Status: model.COMMON_STATUS_ENABLE}
 		transactionCreate(t, f.DB, &owner)
 		peer := model.Peer{Id: "snapshot", Uuid: "snapshot-uuid", UserId: owner.Id, GroupId: 17, AbId: 18, Alias: "managed alias", Cpu: "cpu", Hostname: "host", Memory: "memory", Os: "Linux", Username: "old user", Version: "old", LastOnlineTime: 99, LastOnlineIp: "192.0.2.1", PresetAbId: 19, PresetAbAlias: "preset alias", PresetDevName: "preset host", PresetDevUsrName: "preset user", PresetModifiedAt: 23}
@@ -69,6 +70,7 @@ func TestClientSysinfoSnapshotsRealEngines(t *testing.T) {
 
 func TestClientSysinfoIndependentPoolsPreservePartialFields(t *testing.T) {
 	forEngines(t, func(t *testing.T, f *fixture) {
+		upgrade(t, f.DB, 281)
 		peer := model.Peer{Id: "parallel", Uuid: "parallel-uuid", Username: "old", Cpu: "old cpu", Memory: "old memory", Alias: "managed"}
 		transactionCreate(t, f.DB, &peer)
 		inputs := []clientsysinfo.Input{{ID: peer.Id, CPU: sysinfoString("new cpu")}, {ID: peer.Id, Memory: sysinfoString("new memory")}}
@@ -151,6 +153,7 @@ func TestClientSysinfoActualCommitRollbackAndRetry(t *testing.T) {
 	for _, existing := range []bool{false, true} {
 		t.Run(fmt.Sprintf("existing=%t", existing), func(t *testing.T) {
 			forEngines(t, func(t *testing.T, f *fixture) {
+				upgrade(t, f.DB, 281)
 				peer := model.Peer{Id: "commit-report", Uuid: "commit-uuid", UserId: 1, Username: "before", Alias: "managed", Hostname: "before host"}
 				if existing {
 					transactionCreate(t, f.DB, &peer)
@@ -200,6 +203,7 @@ func TestClientSysinfoActualCommitRollbackAndRetry(t *testing.T) {
 
 func TestClientSysinfoManagementPresetRejectionRealEngines(t *testing.T) {
 	forEngines(t, func(t *testing.T, f *fixture) {
+		upgrade(t, f.DB, 281)
 		peer := model.Peer{Id: "preset-target", UserId: 1, Alias: "managed", Username: "before", Hostname: "before host"}
 		transactionCreate(t, f.DB, &peer)
 		book := model.AddressBookCollection{UserId: 1, Name: "legacy-target"}

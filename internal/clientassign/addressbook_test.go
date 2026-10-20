@@ -206,7 +206,7 @@ func TestAddressBookAssignmentFailuresRollbackAndRetry(t *testing.T) {
 }
 
 func TestAddressBookAssignmentInputRequiresExplicitNonemptyBook(t *testing.T) {
-	for _, tail := range []string{`"address_book_alias":"x"`, `"address_book_tag":"x"`, `"address_book_password":"x"`, `"address_book_note":"x"`, `"address_book_name":""`, `"address_book_name":null`, `"address_book_name":"Exact Book","address_book_name":"Exact Book"`, `"address_book_name":"Exact Book","address_book_tag":null`, `"strategy_name":"unapproved"`} {
+	for _, tail := range []string{`"address_book_alias":"x"`, `"address_book_tag":"x"`, `"address_book_password":"x"`, `"address_book_note":"x"`, `"address_book_name":""`, `"address_book_name":null`, `"address_book_name":"Exact Book","address_book_name":"Exact Book"`, `"address_book_name":"Exact Book","address_book_tag":null`, `"unsupported_assignment":"unapproved"`} {
 		var request clientassign.Input
 		if err := json.Unmarshal([]byte(`{"id":"device","uuid":"uuid",`+tail+`}`), &request); !errors.Is(err, clientassign.ErrInput) {
 			t.Fatalf("invalid input accepted: %s err=%v", tail, err)

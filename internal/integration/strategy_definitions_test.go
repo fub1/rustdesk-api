@@ -367,7 +367,7 @@ func TestStrategyDefinitionsRealCommitRollbackAndRetry(t *testing.T) {
 	for _, operation := range []string{"insert", "update", "delete"} {
 		t.Run(operation, func(t *testing.T) {
 			forEngines(t, func(t *testing.T, f *fixture) {
-				upgrade(t, f.DB, 280)
+				upgrade(t, f.DB, 281)
 				actor := definitionAdmin(t, f.DB, operation)
 				store := definitionStore(t, f.DB)
 				input := strategydefinitions.Input{Name: "commit\x00", ConfigOptions: map[string]string{"after": "value"}}

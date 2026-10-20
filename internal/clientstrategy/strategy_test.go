@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/lejianwen/rustdesk-api/v2/internal/database"
 	"github.com/lejianwen/rustdesk-api/v2/model"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
@@ -30,10 +31,7 @@ func fixture(t *testing.T) (*gorm.DB, *Store, model.Peer) {
 	}
 	pool.SetMaxOpenConns(1)
 	t.Cleanup(func() { _ = pool.Close() })
-	if err := db.AutoMigrate(&model.Peer{}, &model.PeerStrategy{}, &model.PeerStrategyState{}, &model.AddressBookCollection{}); err != nil {
-		t.Fatal(err)
-	}
-	if err := db.Migrator().CreateConstraint(&model.PeerStrategyState{}, "Peer"); err != nil {
+	if err := database.Update(db, 281, nil); err != nil {
 		t.Fatal(err)
 	}
 	peer := model.Peer{Id: "123456", Uuid: "device-uuid", Alias: "bound", PresetModifiedAt: 1 << 60}

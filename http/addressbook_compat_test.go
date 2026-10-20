@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/lejianwen/rustdesk-api/v2/global"
+	"github.com/lejianwen/rustdesk-api/v2/internal/database"
 	"github.com/lejianwen/rustdesk-api/v2/model"
 	"github.com/lejianwen/rustdesk-api/v2/model/custom_types"
 	"gorm.io/gorm"
@@ -30,6 +31,10 @@ func newCompatFixture(t *testing.T) *compatFixture {
 	sessions := installLegacyFixture(t)
 	global.DB.Config.DisableForeignKeyConstraintWhenMigrating = true
 	if err := global.DB.AutoMigrate(&model.User{}, &model.UserToken{}, &model.Group{}, &model.DeviceGroup{}, &model.Peer{}, &model.AddressBook{}, &model.AddressBookCollection{}, &model.AddressBookCollectionRule{}, &model.Tag{}); err != nil {
+		t.Fatal(err)
+	}
+	// Use the runtime schema for current-model peer writes.
+	if err := database.Update(global.DB, 281, nil); err != nil {
 		t.Fatal(err)
 	}
 	pool, err := global.DB.DB()

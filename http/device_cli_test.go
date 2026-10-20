@@ -108,7 +108,7 @@ func TestClientDeviceCLISupportedFieldsAndClearing(t *testing.T) {
 func TestClientDeviceCLIRejectsWholeUnsupportedOrMalformedRequest(t *testing.T) {
 	f := newCLIFixture(t)
 	cases := []string{`null`, `[]`, `{}`, `{"id":"cli-device","uuid":"cli-uuid"}`, `{"id":null,"uuid":"cli-uuid","note":"x"}`, `{"id":"cli-device","uuid":null,"note":"x"}`, `{"id":"cli-device","uuid":"cli-uuid","note":null}`, `{"id":"cli-device","uuid":"cli-uuid","note":"a","note":"b"}`, `{"id":"cli-device","uuid":"cli-uuid","note":"x"}{}`, `{"id":"cli-device","uuid":"wrong","note":"x"}`, `{"id":"CLI-device","uuid":"cli-uuid","note":"x"}`, `{"id":"cli-device","uuid":"cli-uuid","user_name":""}`, `{"id":"cli-device","uuid":"cli-uuid","user_name":"OWNER"}`, `{"id":"cli-device","uuid":"cli-uuid","user_name":"owner "}`, `{"id":"cli-device","uuid":"cli-uuid","device_group_name":""}`}
-	for _, key := range []string{"strategy_name", "user_id", "unknown"} {
+	for _, key := range []string{"unsupported_assignment", "user_id", "unknown"} {
 		for _, value := range []any{"", nil, "value"} {
 			body, _ := json.Marshal(map[string]any{"id": "cli-device", "uuid": "cli-uuid", "device_name": "must-not-apply", key: value})
 			cases = append(cases, string(body))

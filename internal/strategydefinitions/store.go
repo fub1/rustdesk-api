@@ -226,6 +226,11 @@ func (s *Store) Delete(ctx context.Context, actor auth.Principal, id uint) error
 		return ErrInput
 	}
 	return s.transaction(ctx, actor, func(tx *gorm.DB) error {
+		// READ COMMITTED plain reads do not take child locks. Reject an existing
+		// reference before taking the parent lock; CLI/heartbeat lock peer first.
+		if err := definitionUnreferenced(tx, id); err != nil {
+			return err
+		}
 		var row model.StrategyDefinition
 		if err := lock(tx).First(&row, id).Error; err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -233,8 +238,24 @@ func (s *Store) Delete(ctx context.Context, actor auth.Principal, id uint) error
 			}
 			return err
 		}
-		// No device relation exists in this slice. A later approved FK will
-		// enforce RESTRICT; its violation is already classified as ErrReferenced.
+		// Recheck with a fresh RC snapshot after waiting for the definition lock:
+		// a CLI may have committed its association after the first read. Every
+		// coordinated attach holds this parent lock before writing the child.
+		if err := definitionUnreferenced(tx, id); err != nil {
+			return err
+		}
+		// The database FK remains the integrity boundary for other SQL writers.
 		return tx.Delete(&row).Error
 	})
+}
+
+func definitionUnreferenced(tx *gorm.DB, id uint) error {
+	var count int64
+	if err := tx.Model(&model.Peer{}).Where("strategy_definition_id = ?", id).Count(&count).Error; err != nil {
+		return err
+	}
+	if count != 0 {
+		return ErrReferenced
+	}
+	return nil
 }

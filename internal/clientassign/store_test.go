@@ -14,6 +14,7 @@ import (
 	"github.com/lejianwen/rustdesk-api/v2/global"
 	"github.com/lejianwen/rustdesk-api/v2/internal/auth"
 	"github.com/lejianwen/rustdesk-api/v2/internal/clientassign"
+	"github.com/lejianwen/rustdesk-api/v2/internal/database"
 	"github.com/lejianwen/rustdesk-api/v2/model"
 	"github.com/lejianwen/rustdesk-api/v2/service"
 	"gorm.io/driver/sqlite"
@@ -41,7 +42,7 @@ func newFixture(t *testing.T) *fixture {
 	}
 	pool.SetMaxOpenConns(1)
 	t.Cleanup(func() { _ = pool.Close() })
-	if err := db.AutoMigrate(&model.User{}, &model.UserToken{}, &model.Peer{}, &model.DeviceGroup{}); err != nil {
+	if err := database.Update(db, 281, nil); err != nil {
 		t.Fatal(err)
 	}
 	yes, no := true, false

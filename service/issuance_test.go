@@ -9,6 +9,7 @@ import (
 
 	"github.com/lejianwen/rustdesk-api/v2/config"
 	"github.com/lejianwen/rustdesk-api/v2/internal/auth"
+	"github.com/lejianwen/rustdesk-api/v2/internal/database"
 	"github.com/lejianwen/rustdesk-api/v2/model"
 	"github.com/lejianwen/rustdesk-api/v2/utils"
 	"gorm.io/driver/sqlite"
@@ -31,6 +32,10 @@ func issuanceDB(t *testing.T) *gorm.DB {
 	t.Cleanup(func() { _ = conn.Close() })
 	if err := db.AutoMigrate(&model.User{}, &model.UserToken{}, &model.LoginLog{}, &model.Peer{}, &model.OIDCIdentity{},
 		&model.UserThird{}, &model.AddressBook{}, &model.AddressBookCollection{}, &model.AddressBookCollectionRule{}); err != nil {
+		t.Fatal(err)
+	}
+	// Use the runtime schema for current-model peer writes.
+	if err := database.Update(db, 281, nil); err != nil {
 		t.Fatal(err)
 	}
 	return db

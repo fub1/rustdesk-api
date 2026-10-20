@@ -22,7 +22,7 @@ func assignmentValue(s string) clientassign.OptionalString {
 
 func assignmentSetup(t *testing.T, f *fixture) (auth.Principal, model.User, model.Peer) {
 	t.Helper()
-	if err := database.Update(f.DB, 279, nil); err != nil {
+	if err := database.Update(f.DB, 281, nil); err != nil {
 		t.Fatal(err)
 	}
 	yes := true

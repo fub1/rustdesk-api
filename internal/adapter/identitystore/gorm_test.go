@@ -10,6 +10,7 @@ import (
 	"github.com/lejianwen/rustdesk-api/v2/internal/adapter/identitystore"
 	"github.com/lejianwen/rustdesk-api/v2/internal/adapter/sessiontoken"
 	"github.com/lejianwen/rustdesk-api/v2/internal/auth"
+	"github.com/lejianwen/rustdesk-api/v2/internal/database"
 	"github.com/lejianwen/rustdesk-api/v2/model"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
@@ -25,6 +26,10 @@ func fixture(t *testing.T, auto bool) (*gorm.DB, *identitystore.Store, auth.Prov
 	pool, _ := db.DB()
 	t.Cleanup(func() { pool.Close() })
 	if err := db.AutoMigrate(&model.User{}, &model.UserToken{}, &model.LoginLog{}, &model.Peer{}, &model.Oauth{}, &model.OIDCIdentity{}); err != nil {
+		t.Fatal(err)
+	}
+	// Use the runtime schema for current-model peer writes.
+	if err := database.Update(db, 281, nil); err != nil {
 		t.Fatal(err)
 	}
 	enabled := true

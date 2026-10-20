@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/lejianwen/rustdesk-api/v2/internal/clientsysinfo"
+	"github.com/lejianwen/rustdesk-api/v2/internal/database"
 	"github.com/lejianwen/rustdesk-api/v2/model"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
@@ -25,6 +26,10 @@ func TestSysInfoStoreRejectsTypedAndDecodedManagementBeforeDatabaseAccess(t *tes
 	}
 	t.Cleanup(func() { _ = pool.Close() })
 	if err := db.AutoMigrate(&model.Peer{}); err != nil {
+		t.Fatal(err)
+	}
+	// Use the runtime schema for current-model peer writes.
+	if err := database.Update(db, 281, nil); err != nil {
 		t.Fatal(err)
 	}
 	store, err := clientsysinfo.New(db)

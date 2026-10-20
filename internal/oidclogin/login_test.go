@@ -15,6 +15,7 @@ import (
 	"github.com/lejianwen/rustdesk-api/v2/internal/adapter/sessiontoken"
 	"github.com/lejianwen/rustdesk-api/v2/internal/app"
 	"github.com/lejianwen/rustdesk-api/v2/internal/auth"
+	"github.com/lejianwen/rustdesk-api/v2/internal/database"
 	"github.com/lejianwen/rustdesk-api/v2/internal/loginattempt"
 	"github.com/lejianwen/rustdesk-api/v2/internal/oidclogin"
 	"github.com/lejianwen/rustdesk-api/v2/model"
@@ -112,6 +113,10 @@ func newFixtureWithOptions(t *testing.T, key []byte, options loginattempt.Option
 	pool.SetMaxOpenConns(1)
 	t.Cleanup(func() { _ = pool.Close() })
 	if err := db.AutoMigrate(&model.User{}, &model.UserToken{}, &model.LoginLog{}, &model.Peer{}, &model.Oauth{}, &model.OIDCIdentity{}); err != nil {
+		t.Fatal(err)
+	}
+	// Use the runtime schema for current-model peer writes.
+	if err := database.Update(db, 281, nil); err != nil {
 		t.Fatal(err)
 	}
 	yes := true

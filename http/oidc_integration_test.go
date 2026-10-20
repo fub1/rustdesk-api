@@ -22,6 +22,7 @@ import (
 	"github.com/lejianwen/rustdesk-api/v2/global"
 	"github.com/lejianwen/rustdesk-api/v2/internal/app"
 	"github.com/lejianwen/rustdesk-api/v2/internal/auth"
+	"github.com/lejianwen/rustdesk-api/v2/internal/database"
 	"github.com/lejianwen/rustdesk-api/v2/internal/httpapi"
 	"github.com/lejianwen/rustdesk-api/v2/model"
 	"github.com/lejianwen/rustdesk-api/v2/utils"
@@ -142,6 +143,10 @@ func newRouteOIDCFixture(t *testing.T) *routeOIDCFixture {
 	// identity FK/uniqueness checks are exercised by identitystore's DB suite.
 	global.DB.Config.DisableForeignKeyConstraintWhenMigrating = true
 	if err := global.DB.AutoMigrate(&model.User{}, &model.UserToken{}, &model.LoginLog{}, &model.Peer{}, &model.Oauth{}, &model.OIDCIdentity{}, &model.OperationLog{}); err != nil {
+		t.Fatal(err)
+	}
+	// Use the runtime schema for current-model peer writes.
+	if err := database.Update(global.DB, 281, nil); err != nil {
 		t.Fatal(err)
 	}
 	pool, err := global.DB.DB()

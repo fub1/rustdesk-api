@@ -141,3 +141,9 @@ COMP02/03 当时未覆盖的 peer DELETE 与 tag 四个变更入口，已由后�
 POST /api/devices/cli增加五个stock簿字段，规则见[CLI支持范围](device-cli.md)。支持精确现有owner命名簿的加入/窄更新，保留其他簿与Peer.AbId/Alias；原始共享Password不转换成个人Hash，标签是完整单名追加。旧同scope重复行不合并，空串只清指定附属文本。策略名仍整请求拒绝。schema保持279，30条注册/6条缺失及36契约数量不变。
 
 新增生产HTTP回读与拒绝、core事务故障，以及MySQL/PostgreSQL最后AB UPDATE后真实COMMIT故障回滚重试、双CLI与普通标签重命名、CLI与集合删除独立池竞争、集合各DELETE语句失败回滚重试。legacy集合更新/删除现参与owner排序锁并检查各SQL错误；此协调未解决所有历史管理控制器授权竞态或既有主簿引用删除政策。真实官方--assign、空响应Done与簿内密码/标签/备注刷新尚未执行；未部署，本批fixture不替代真实客户端验收。
+
+## PRE02-D 命名定义持续关联（2026-10-20）
+
+已批准nullable peers.strategy_definition_id以281迁移，旧NULL、RESTRICT删除、非唯一索引。CLI strategy_name缺失保留、空串SQL NULL、非空byte精确定位，混合地址簿写同事务失败回滚；定义修改下次心跳按默认→命名→单设备→实际预设生效，复用最终payload revision和持久managed_keys。定义改名不动设备外键，使用中拒删，无配置副本/关联历史/新关系表。见[精确规则与限制](named-strategies.md)。
+
+自动化覆盖生产CLI→定义CRUD→heartbeat链，SQLite升级历史/trigger/index保留、MySQL/PostgreSQL约束/失败重试/精确名称/实时合并/五方独立池竞争及最终AB/历史SQL后真实COMMIT故障回滚重试。当前runtime fixtures用281；旧278迁移夹具明确省略未存在的可空列，不改变历史版本测试基线。真实官方--assign、实际应用更新/解绑和本批簿附属字段尚未验收；未部署。

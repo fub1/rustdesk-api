@@ -12,6 +12,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/lejianwen/rustdesk-api/v2/internal/strategydefinitions"
 	"github.com/lejianwen/rustdesk-api/v2/model"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -87,6 +88,28 @@ func (s *Store) Heartbeat(ctx context.Context, id, uuid string, known int64) (Re
 				defaults = options
 			} else {
 				device = options
+			}
+		}
+		// Named policy is a live reference. Read it for every heartbeat while
+		// holding the peer first, matching CLI's peer -> definition order.
+		if result.Peer.StrategyDefinitionID != nil {
+			if *result.Peer.StrategyDefinitionID == 0 {
+				return ErrUnavailable
+			}
+			var definition model.StrategyDefinition
+			query := tx
+			if tx.Dialector.Name() != "sqlite" {
+				query = query.Clauses(clause.Locking{Strength: "UPDATE"})
+			}
+			if err := query.First(&definition, *result.Peer.StrategyDefinitionID).Error; err != nil {
+				return err
+			}
+			named, err := strategydefinitions.DecodeOptions([]byte(definition.ConfigOptions))
+			if err != nil {
+				return ErrUnavailable
+			}
+			for key, value := range named {
+				defaults[key] = value
 			}
 		}
 		for key, value := range device {

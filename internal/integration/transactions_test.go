@@ -33,7 +33,13 @@ func transactionCount(t *testing.T, db *gorm.DB, row interface{}) int64 {
 
 func transactionCreate(t *testing.T, db *gorm.DB, row interface{}) {
 	t.Helper()
-	if err := db.Create(row).Error; err != nil {
+	write := db
+	// Historical 278/280 migration fixtures deliberately predate the nullable
+	// association. Only a nil relation may use that historical row shape.
+	if peer, ok := row.(*model.Peer); ok && peer.StrategyDefinitionID == nil && !db.Migrator().HasColumn(&model.Peer{}, "strategy_definition_id") {
+		write = db.Omit("StrategyDefinitionID")
+	}
+	if err := write.Create(row).Error; err != nil {
 		t.Fatal(err)
 	}
 }
@@ -51,6 +57,7 @@ func auditOpen() model.AuditConn {
 
 func TestAuditIndependentPoolsArbitrateReceipts(t *testing.T) {
 	forEngines(t, func(t *testing.T, f *fixture) {
+		upgrade(t, f.DB, 281)
 		const writers = 12
 		services := make([]*clientaudit.Service, writers)
 		for i := range services {
@@ -158,6 +165,7 @@ func failTransactionCommit(t *testing.T, f *fixture, target string) func() {
 
 func TestAuditRealCommitFailureDoesNotConsumeReceipt(t *testing.T) {
 	forEngines(t, func(t *testing.T, f *fixture) {
+		upgrade(t, f.DB, 281)
 		service, err := clientaudit.New(f.DB)
 		if err != nil {
 			t.Fatal(err)
@@ -201,6 +209,7 @@ func identityConfig(t *testing.T, db *gorm.DB) (*identitystore.Store, auth.Provi
 
 func TestIdentityRealCommitFailureRollsBackAdmission(t *testing.T) {
 	forEngines(t, func(t *testing.T, f *fixture) {
+		upgrade(t, f.DB, 281)
 		s, c := identityConfig(t, f.DB)
 		initialUsers := transactionCount(t, f.DB, &model.User{})
 		remove := failTransactionCommit(t, f, "login_logs")
@@ -232,6 +241,7 @@ func TestIdentityRealCommitFailureRollsBackAdmission(t *testing.T) {
 
 func TestIdentityConcurrentAdmissionAndByteExactKey(t *testing.T) {
 	forEngines(t, func(t *testing.T, f *fixture) {
+		upgrade(t, f.DB, 281)
 		_, c := identityConfig(t, f.DB)
 		initialUsers := transactionCount(t, f.DB, &model.User{})
 		const writers = 8
@@ -302,6 +312,7 @@ func TestIdentityConcurrentAdmissionAndByteExactKey(t *testing.T) {
 
 func TestSessionConcurrentRenewAndRevokeCannotResurrect(t *testing.T) {
 	forEngines(t, func(t *testing.T, f *fixture) {
+		upgrade(t, f.DB, 281)
 		a, _ := authstore.New(f.Reopen(t))
 		b, _ := authstore.New(f.Reopen(t))
 		for i := 0; i < 8; i++ {
@@ -335,6 +346,7 @@ func TestSessionConcurrentRenewAndRevokeCannotResurrect(t *testing.T) {
 
 func TestIdentityConcurrentBindingKeepsOneOwner(t *testing.T) {
 	forEngines(t, func(t *testing.T, f *fixture) {
+		upgrade(t, f.DB, 281)
 		_, config := identityConfig(t, f.DB)
 		other := model.User{Username: "other-user", Password: "hash", Status: model.COMMON_STATUS_ENABLE}
 		transactionCreate(t, f.DB, &other)
@@ -381,6 +393,7 @@ func TestIdentityConcurrentBindingKeepsOneOwner(t *testing.T) {
 // validation, issuance instead waits for that user without holding the session.
 func TestSessionWebIssuanceAndBindingUseConsistentLockOrder(t *testing.T) {
 	forEngines(t, func(t *testing.T, f *fixture) {
+		upgrade(t, f.DB, 281)
 		_, config := identityConfig(t, f.DB)
 		now := time.Now().UTC().Truncate(time.Second)
 		row := model.UserToken{UserId: 1, Token: "approving-browser", ExpiredAt: now.Add(time.Hour).Unix()}
@@ -547,6 +560,7 @@ func observeTransactions(t *testing.T, db *gorm.DB) (*gorm.DB, *transactionError
 
 func TestStrategySerializableCompetitionAndDurableClear(t *testing.T) {
 	forEngines(t, func(t *testing.T, f *fixture) {
+		upgrade(t, f.DB, 281)
 		peer := model.Peer{Id: "strategy-device", Uuid: "strategy-uuid"}
 		transactionCreate(t, f.DB, &peer)
 		policy := model.PeerStrategy{PeerId: peer.Id, ConfigOptions: custom_types.AutoJson(`{"managed":"value"}`)}

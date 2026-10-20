@@ -16,6 +16,7 @@ import (
 	"github.com/lejianwen/rustdesk-api/v2/internal/adapter/authstore"
 	"github.com/lejianwen/rustdesk-api/v2/internal/adapter/sessiontoken"
 	"github.com/lejianwen/rustdesk-api/v2/internal/auth"
+	"github.com/lejianwen/rustdesk-api/v2/internal/database"
 	"github.com/lejianwen/rustdesk-api/v2/internal/httpapi"
 	"github.com/lejianwen/rustdesk-api/v2/model"
 	"gorm.io/driver/sqlite"
@@ -44,6 +45,10 @@ func newInstallation(t *testing.T, name string, signed bool, options ...httpapi.
 	}
 	t.Cleanup(func() { _ = pool.Close() })
 	if err := db.AutoMigrate(&model.User{}, &model.UserToken{}, &model.Peer{}); err != nil {
+		t.Fatal(err)
+	}
+	// Use the runtime schema for current-model peer writes.
+	if err := database.Update(db, 281, nil); err != nil {
 		t.Fatal(err)
 	}
 	for id := uint(1); id <= 2; id++ {
