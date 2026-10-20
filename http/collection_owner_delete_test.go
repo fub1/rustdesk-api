@@ -11,6 +11,7 @@ import (
 
 func TestCollectionOwnerDeletionHTTPRejectsReferencesAndRollsBack(t *testing.T) {
 	f, book := collectionFixture(t)
+	installUserManagementStore(t, f, f.db)
 	peer := model.Peer{Id: "owner-delete-ref", Uuid: "owner-delete-uuid", UserId: f.hidden.Id, AbId: book.Id, Alias: "preserve"}
 	compatCreate(t, &peer)
 	body := fmt.Sprintf(`{"id":%d}`, f.owner.Id)
@@ -30,7 +31,7 @@ func TestCollectionOwnerDeletionHTTPRejectsReferencesAndRollsBack(t *testing.T) 
 		t.Fatal(err)
 	}
 	w := f.call("POST", "/api/admin/user/delete", body)
-	definitionResult(t, w, 200, 101)
+	definitionResult(t, w, 503, 503)
 	if strings.Contains(w.Body.String(), "private") || strings.Contains(w.Body.String(), "SQL") || !reflect.DeepEqual(before, collectionSnapshot(t, f)) {
 		t.Fatal("owner deletion SQL failure leaked cause or retained partial cleanup", w.Body.String())
 	}

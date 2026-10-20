@@ -24,6 +24,7 @@ import (
 	"github.com/lejianwen/rustdesk-api/v2/internal/httpapi"
 	"github.com/lejianwen/rustdesk-api/v2/internal/lifecycle"
 	"github.com/lejianwen/rustdesk-api/v2/internal/strategydefinitions"
+	"github.com/lejianwen/rustdesk-api/v2/internal/useradmin"
 	"github.com/lejianwen/rustdesk-api/v2/lib/cache"
 	"github.com/lejianwen/rustdesk-api/v2/lib/jwt"
 	"github.com/lejianwen/rustdesk-api/v2/lib/lock"
@@ -98,7 +99,13 @@ var rootCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
+		users, err := useradmin.New(global.DB, useradmin.Options{})
+		if err != nil {
+			return err
+		}
 		authHTTP, err := httpapi.New(sessions, httpapi.Options{
+			Users:               users,
+			CheckUsernameInLDAP: service.NewLDAPUsernameChecker(global.Config.Ldap, global.Config.App.AuthTimeout),
 			Books:               books,
 			Collections:         collections,
 			StrategyDefinitions: definitions,

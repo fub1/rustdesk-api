@@ -96,7 +96,7 @@ func UserBind(rg *gin.RouterGroup, sessions *httpapi.Handler) {
 	{
 		cont := &admin.User{}
 		aR.GET("/current", sessions.AdminCurrent)
-		aR.POST("/changeCurPwd", cont.ChangeCurPwd)
+		aR.POST("/changeCurPwd", sessions.UserChangePassword)
 		aR.POST("/myOauth", sessions.OIDCMyOauth)
 		//aR.GET("/myPeer", cont.MyPeer)
 		aR.POST("/groupUsers", cont.GroupUsers)
@@ -106,10 +106,10 @@ func UserBind(rg *gin.RouterGroup, sessions *httpapi.Handler) {
 		cont := &admin.User{}
 		aRP.GET("/list", cont.List)
 		aRP.GET("/detail/:id", cont.Detail)
-		aRP.POST("/create", cont.Create)
-		aRP.POST("/update", cont.Update)
-		aRP.POST("/delete", cont.Delete)
-		aRP.POST("/changePwd", cont.UpdatePassword)
+		aRP.POST("/create", sessions.UserCreate)
+		aRP.POST("/update", sessions.UserUpdate)
+		aRP.POST("/delete", sessions.UserDelete)
+		aRP.POST("/changePwd", sessions.UserResetPassword)
 	}
 }
 

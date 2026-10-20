@@ -157,7 +157,9 @@ func TestUserCollectionDeleteLocksSessionsPeersBeforeCollections(t *testing.T) {
 	if err := f.db.Callback().Query().After("gorm:query").Register("user:observe-lifecycle-locks", func(tx *gorm.DB) {
 		switch tx.Statement.Table {
 		case "users":
-			events = append(events, "user")
+			if _, ok := tx.Statement.Dest.(*model.User); ok {
+				events = append(events, "user")
+			}
 		case "user_tokens":
 			if _, ok := tx.Statement.Dest.(*[]model.UserToken); ok && strings.Contains(strings.Join(tx.Statement.Selects, ","), "user_id") {
 				events = append(events, "sessions")

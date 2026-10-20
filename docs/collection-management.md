@@ -52,9 +52,10 @@ MySQL secondary-index/primary-key deadlocks reproduced during verification.
 Successful deletion only removes its checked, locked session IDs. Other SQL
 and COMMIT failures also roll back without exposing SQL text.
 
-This legacy service signature does not add fresh administrator authorization
-to the old user-delete controller. Last-administrator concurrent deletion is
-still outside LEG01B. A later defensive slice rejects `BindOauthUser`, the old
+The legacy service signature by itself does not add fresh actor authorization.
+The later [user management slice](user-management-security.md) routes the five
+account write families through current transaction authorization and protects
+the last enabled administrator. A separate defensive slice rejects `BindOauthUser`, the old
 provider-name identity writer, just as legacy OAuth registration is rejected.
 Its old HTTP callers were already unregistered; this is a service-boundary
 closure, not a claim of an active registered HTTP exploit. Historical UserThird

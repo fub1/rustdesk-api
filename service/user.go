@@ -5,19 +5,18 @@ import (
 	"database/sql"
 	"errors"
 	"math/rand"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/lejianwen/rustdesk-api/v2/internal/auth"
-	"github.com/lejianwen/rustdesk-api/v2/internal/collectionguard"
+	"github.com/lejianwen/rustdesk-api/v2/internal/userguard"
+	"github.com/lejianwen/rustdesk-api/v2/internal/userlifecycle"
 	"github.com/lejianwen/rustdesk-api/v2/model"
 	"github.com/lejianwen/rustdesk-api/v2/model/custom_types"
 	"github.com/lejianwen/rustdesk-api/v2/utils"
 	"gorm.io/gorm"
-	"gorm.io/gorm/clause"
 	"gorm.io/gorm/logger"
 )
 
@@ -240,7 +239,11 @@ func (us *UserService) Delete(u *model.User) error {
 
 // DeleteContext removes identity, sessions and peer ownership in one transaction.
 func (us *UserService) DeleteContext(ctx context.Context, u *model.User) error {
-	if us == nil || us.db == nil {
+	if us == nil {
+		return auth.ErrUnavailable
+	}
+	storage := us.accountDB()
+	if storage == nil {
 		return auth.ErrUnavailable
 	}
 	if u == nil || u.Id == 0 {
@@ -248,200 +251,82 @@ func (us *UserService) DeleteContext(ctx context.Context, u *model.User) error {
 	}
 	ctx, cancel := us.operationContext(ctx)
 	defer cancel()
-	db := us.db.Session(&gorm.Session{Logger: logger.Default.LogMode(logger.Silent)}).WithContext(ctx)
+	db := storage.Session(&gorm.Session{Logger: logger.Default.LogMode(logger.Silent)}).WithContext(ctx)
 	err := db.Transaction(func(tx *gorm.DB) error {
-		var current model.User
-		if err := lifecycleRows(tx).First(&current, u.Id).Error; err != nil {
+		locked, err := userguard.LockUsers(tx, u.Id)
+		if err != nil {
 			return err
 		}
-		// Login can hold an identity before waiting for this user. Never wait
-		// for that identity in the opposite order: fail this whole deletion.
-		for _, rows := range []any{&[]model.OIDCIdentity{}, &[]model.UserThird{}} {
-			query := tx.Select("id").Where("user_id = ?", current.Id).Order("id ASC")
-			if tx.Dialector.Name() != "sqlite" {
-				query = query.Clauses(clause.Locking{Strength: "UPDATE", Options: "NOWAIT"})
-			}
-			if err := query.Find(rows).Error; err != nil {
-				return referenceWriteError(tx, err)
-			}
+		current, ok := locked[u.Id]
+		if !ok {
+			return gorm.ErrRecordNotFound
 		}
-		if us.IsAdmin(&current) {
-			var count int64
-			if err := tx.Model(&model.User{}).Where("is_admin = ?", true).Count(&count).Error; err != nil {
-				return err
-			}
-			if count <= 1 {
-				return errLastAdminDelete
-			}
+		if err := userguard.CheckRemoval(locked, current, nil); err != nil {
+			return errLastAdminDelete
 		}
-		var candidates []model.AddressBookCollection
-		if err := tx.Select("id,user_id").Where("user_id = ?", current.Id).Order("id ASC").Find(&candidates).Error; err != nil {
-			return err
-		}
-		cids := make([]uint, 0, len(candidates))
-		for _, row := range candidates {
-			cids = append(cids, row.Id)
-		}
-		if err := collectionguard.EnsureUnreferenced(tx, cids); err != nil {
-			return err
-		}
-		// Revoke locks the token index before the session PK. Use that same
-		// access path, with NOWAIT so a busy group rolls back this whole delete.
-		var sessions []model.UserToken
-		if err := tx.Select("id,token").Where("user_id = ?", current.Id).Order("id ASC").Find(&sessions).Error; err != nil {
-			return err
-		}
-		groups := make(map[string]bool, len(sessions))
-		candidatesByID := make(map[uint]string, len(sessions))
-		for _, candidate := range sessions {
-			groups[candidate.Token] = true
-			candidatesByID[candidate.Id] = candidate.Token
-		}
-		tokens := make([]string, 0, len(groups))
-		for token := range groups {
-			tokens = append(tokens, token)
-		}
-		sort.Strings(tokens)
-		lockedSessions := map[uint]bool{}
-		for _, token := range tokens {
-			var rows []model.UserToken
-			if err := lifecycleSessionGroup(tx, token).Select("id,user_id,token").Find(&rows).Error; err != nil {
-				return referenceWriteError(tx, err)
-			}
-			for _, row := range rows {
-				if expected, exists := candidatesByID[row.Id]; exists && row.UserId == current.Id && row.Token == expected {
-					lockedSessions[row.Id] = true
-				}
-			}
-		}
-		// A revoked row may disappear. A still-owned candidate whose token
-		// changed cannot be silently left behind by this deletion.
-		for _, candidate := range sessions {
-			if lockedSessions[candidate.Id] {
-				continue
-			}
-			var remaining model.UserToken
-			if err := tx.Select("id,user_id,token").First(&remaining, candidate.Id).Error; err != nil {
-				if errors.Is(err, gorm.ErrRecordNotFound) {
-					continue
-				}
-				return err
-			}
-			if remaining.UserId == current.Id {
-				return collectionguard.ErrUnavailable
-			}
-		}
-		var peers []model.Peer
-		if err := tx.Select("row_id").Where("user_id = ?", current.Id).Order("row_id ASC").Find(&peers).Error; err != nil {
-			return err
-		}
-		peerIDs := make([]uint, 0, len(peers))
-		for _, candidate := range peers {
-			var peer model.Peer
-			if err := lifecyclePrimaryRows(tx, "peers").Select("row_id,user_id").First(&peer, candidate.RowId).Error; err != nil {
-				if errors.Is(err, gorm.ErrRecordNotFound) {
-					continue
-				}
-				return err
-			}
-			if peer.UserId == current.Id {
-				peerIDs = append(peerIDs, peer.RowId)
-			}
-		}
-		for _, cid := range cids {
-			var collection model.AddressBookCollection
-			if err := lifecycleRows(tx).First(&collection, cid).Error; err != nil {
-				return err
-			}
-			if collection.UserId != current.Id {
-				return collectionguard.ErrInput
-			}
-		}
-		if err := collectionguard.EnsureUnreferenced(tx, cids); err != nil {
-			return err
-		}
-		for _, cid := range cids {
-			if err := collectionguard.DeleteContents(tx, cid); err != nil {
-				return err
-			}
-		}
-		for _, row := range []interface{}{&model.OIDCIdentity{}, &model.UserThird{},
-			&model.AddressBook{}, &model.AddressBookCollectionRule{}, &model.Tag{}} {
-			if err := tx.Where("user_id = ?", u.Id).Delete(row).Error; err != nil {
-				return err
-			}
-		}
-		sessionIDs := make([]uint, 0, len(lockedSessions))
-		for id := range lockedSessions {
-			sessionIDs = append(sessionIDs, id)
-		}
-		sort.Slice(sessionIDs, func(i, j int) bool { return sessionIDs[i] < sessionIDs[j] })
-		for _, id := range sessionIDs {
-			deleted := tx.Where("id = ?", id).Delete(&model.UserToken{})
-			if deleted.Error != nil {
-				return deleted.Error
-			}
-			if deleted.RowsAffected != 1 {
-				return collectionguard.ErrUnavailable
-			}
-		}
-		for _, id := range peerIDs {
-			if err := tx.Model(&model.Peer{}).Where("row_id = ?", id).Update("user_id", 0).Error; err != nil {
-				return err
-			}
-		}
-		deleted := tx.Delete(&current)
-		if deleted.Error != nil {
-			return deleted.Error
-		}
-		if deleted.RowsAffected != 1 {
-			return collectionguard.ErrUnavailable
-		}
-		return nil
+		return userlifecycle.DeleteLocked(tx, &current)
 	}, &sql.TxOptions{Isolation: sql.LevelReadCommitted})
 	return referenceWriteError(db, err)
 }
 
+// accountDB snapshots instance storage; the fallback retains the legacy LDAP
+// adapter's zero-value UserService entry point. New instance stores never use it.
+func (us *UserService) accountDB() *gorm.DB {
+	if us != nil && us.db != nil {
+		return us.db
+	}
+	return DB
+}
+
 func lifecycleRows(tx *gorm.DB) *gorm.DB {
-	if tx.Dialector.Name() != "sqlite" {
-		return tx.Clauses(clause.Locking{Strength: "UPDATE"})
-	}
-	return tx
-}
-
-// Lock a known peer PK without first taking a user_id secondary-index lock.
-// The caller passes a fixed table name, never request input.
-func lifecyclePrimaryRows(tx *gorm.DB, table string) *gorm.DB {
-	query := lifecycleRows(tx)
-	if tx.Dialector.Name() == "mysql" {
-		query = query.Clauses(clause.From{Tables: []clause.Table{{Name: table + " FORCE INDEX (PRIMARY)", Raw: true}}})
-	}
-	return query
-}
-
-func lifecycleSessionGroup(tx *gorm.DB, token string) *gorm.DB {
-	query := tx.Where("token = ?", token).Order("id ASC")
-	if tx.Dialector.Name() != "sqlite" {
-		query = query.Clauses(clause.Locking{Strength: "UPDATE", Options: "NOWAIT"})
-	}
-	if tx.Dialector.Name() == "mysql" {
-		query = query.Clauses(clause.From{Tables: []clause.Table{{Name: "user_tokens FORCE INDEX (idx_user_tokens_token)", Raw: true}}})
-	}
-	return query
+	return userguard.Rows(tx)
 }
 
 // Update 更新
 func (us *UserService) Update(u *model.User) error {
-	currentUser := us.InfoById(u.Id)
-	// 如果当前用户是管理员并且 IsAdmin 不为空，进行检查
-	if us.IsAdmin(currentUser) {
-		adminCount := us.getAdminUserCount()
-		// 如果这是唯一的管理员，确保不能禁用或取消管理员权限
-		if adminCount <= 1 && (!us.IsAdmin(u) || u.Status == model.COMMON_STATUS_DISABLED) {
-			return errors.New("The last admin user cannot be disabled or demoted")
-		}
+	return us.UpdateContext(context.Background(), u)
+}
+func (us *UserService) UpdateContext(ctx context.Context, u *model.User) error {
+	if us == nil {
+		return auth.ErrUnavailable
 	}
-	return DB.Model(u).Updates(u).Error
+	storage := us.accountDB()
+	if storage == nil {
+		return auth.ErrUnavailable
+	}
+	if u == nil || u.Id == 0 {
+		return auth.ErrInvalidInput
+	}
+	ctx, cancel := us.operationContext(ctx)
+	defer cancel()
+	db := storage.Session(&gorm.Session{Logger: logger.Default.LogMode(logger.Silent)}).WithContext(ctx)
+	err := db.Transaction(func(tx *gorm.DB) error {
+		locked, err := userguard.LockUsers(tx, u.Id)
+		if err != nil {
+			return err
+		}
+		current, ok := locked[u.Id]
+		if !ok {
+			return gorm.ErrRecordNotFound
+		}
+		next, values := userguard.Patch(current, *u)
+		if err := userguard.CheckRemoval(locked, current, &next); err != nil {
+			return err
+		}
+		if len(values) > 0 {
+			if err := tx.Model(&model.User{}).Where("id = ?", current.Id).Updates(values).Error; err != nil {
+				return err
+			}
+		}
+		if next.Status != model.COMMON_STATUS_ENABLE {
+			return userlifecycle.RevokeLocked(tx, current.Id)
+		}
+		return nil
+	}, &sql.TxOptions{Isolation: sql.LevelReadCommitted})
+	if errors.Is(err, userguard.ErrLastEnabledAdmin) {
+		return userguard.ErrLastEnabledAdmin
+	}
+	return referenceWriteError(db, err)
 }
 
 // FlushToken 清空token
@@ -467,7 +352,11 @@ func (us *UserService) UpdatePassword(u *model.User, password string) error {
 // UpdatePasswordContext commits the password and revocation together. The
 // expected hash prevents a stale password check from overwriting a newer change.
 func (us *UserService) UpdatePasswordContext(ctx context.Context, u *model.User, password string) error {
-	if us == nil || us.db == nil {
+	if us == nil {
+		return auth.ErrUnavailable
+	}
+	storage := us.accountDB()
+	if storage == nil {
 		return auth.ErrUnavailable
 	}
 	if u == nil || u.Id == 0 {
@@ -482,7 +371,15 @@ func (us *UserService) UpdatePasswordContext(ctx context.Context, u *model.User,
 	if err != nil {
 		return err
 	}
-	err = us.db.Session(&gorm.Session{Logger: logger.Default.LogMode(logger.Silent)}).WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	db := storage.Session(&gorm.Session{Logger: logger.Default.LogMode(logger.Silent)}).WithContext(ctx)
+	err = db.Transaction(func(tx *gorm.DB) error {
+		var current model.User
+		if err := lifecycleRows(tx).First(&current, u.Id).Error; err != nil {
+			return err
+		}
+		if current.Password != u.Password {
+			return auth.ErrUnauthenticated
+		}
 		result := tx.Model(&model.User{}).Where("id = ? AND password = ?", u.Id, u.Password).Update("password", hash)
 		if result.Error != nil {
 			return result.Error
@@ -490,12 +387,16 @@ func (us *UserService) UpdatePasswordContext(ctx context.Context, u *model.User,
 		if result.RowsAffected != 1 {
 			return auth.ErrUnauthenticated
 		}
-		return tx.Where("user_id = ?", u.Id).Delete(&model.UserToken{}).Error
-	})
+		return userlifecycle.RevokeLocked(tx, u.Id)
+	}, &sql.TxOptions{Isolation: sql.LevelReadCommitted})
 	if err == nil {
 		u.Password = hash
+		return nil
 	}
-	return err
+	if errors.Is(err, auth.ErrUnauthenticated) {
+		return auth.ErrUnauthenticated
+	}
+	return referenceWriteError(db, err)
 }
 
 // IsAdmin 是否管理员

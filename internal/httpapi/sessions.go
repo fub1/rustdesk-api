@@ -17,6 +17,7 @@ import (
 	"github.com/lejianwen/rustdesk-api/v2/internal/collectionadmin"
 	"github.com/lejianwen/rustdesk-api/v2/internal/oidclogin"
 	"github.com/lejianwen/rustdesk-api/v2/internal/strategydefinitions"
+	"github.com/lejianwen/rustdesk-api/v2/internal/useradmin"
 	"github.com/lejianwen/rustdesk-api/v2/model"
 	"github.com/lejianwen/rustdesk-api/v2/model/custom_types"
 )
@@ -36,6 +37,8 @@ type Options struct {
 	StrategyDefinitions *strategydefinitions.Store
 	Collections         *collectionadmin.Store
 	Books               *bookadmin.Store
+	Users               *useradmin.Store
+	CheckUsernameInLDAP func(context.Context, string) (bool, error)
 }
 
 const DefaultTimeout = 5 * time.Second
@@ -47,6 +50,8 @@ type Handler struct {
 	strategyDefinitions     *strategydefinitions.Store
 	collections             *collectionadmin.Store
 	books                   *bookadmin.Store
+	users                   *useradmin.Store
+	checkUsernameInLDAP     func(context.Context, string) (bool, error)
 	translate               Translate
 	userRoutes, adminRoutes []string
 	timeout                 time.Duration
@@ -63,7 +68,7 @@ func New(sessions *auth.Service, options Options) (*Handler, error) {
 	if options.Timeout == 0 {
 		options.Timeout = DefaultTimeout
 	}
-	return &Handler{sessions: sessions, oidc: options.OIDC, assign: options.Assign, strategyDefinitions: options.StrategyDefinitions, collections: options.Collections, books: options.Books, translate: options.Translate, timeout: options.Timeout, observe: options.Observe, userRoutes: append([]string(nil), model.UserRouteNames...), adminRoutes: append([]string(nil), model.AdminRouteNames...)}, nil
+	return &Handler{sessions: sessions, oidc: options.OIDC, assign: options.Assign, strategyDefinitions: options.StrategyDefinitions, collections: options.Collections, books: options.Books, users: options.Users, checkUsernameInLDAP: options.CheckUsernameInLDAP, translate: options.Translate, timeout: options.Timeout, observe: options.Observe, userRoutes: append([]string(nil), model.UserRouteNames...), adminRoutes: append([]string(nil), model.AdminRouteNames...)}, nil
 }
 
 func Current(c *gin.Context) (auth.Principal, bool) {
