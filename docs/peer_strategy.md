@@ -403,3 +403,11 @@ POST /admin/peer_strategy/default/update
 | `created_at` | timestamp | 创建时间 |
 | `updated_at` | timestamp | 更新时间 |
 | `peer_alias` | string | 关联的设备别名（仅列表接口返回） |
+
+## PRE02-A：策略写入与严格心跳读取一致（2026-10-20）
+
+后台设备策略create/update、默认default/update、未绑定默认default_unbound/update四个写入口在持久化前统一拒绝空字符串配置键；保留既有HTTP200/code101管理错误封套。空对象、字段省略或null仍按现有全替换语义清空，非空键的空值和非空白键原样保留，不另设配置键白名单或trim政策。
+
+修复前已通过真实生产路由复现四写入口code0保存空键，随后心跳503；修复后拒绝请求不改变策略、设备、受管历史原始业务行，原有效策略仍可心跳。已认证管理操作尝试日志沿原规则记录，因此不声称所有数据库表零新增。
+
+证据：`http/strategy_options_validation_test.go` 的4个拒绝组合与20个合法替换组合，及已有删除/fallback/省略/null回归；独立审查与Go1.23.10/CGO1全仓shuffle race、vet、build通过。没有新SQL路径或迁移，本地实库本片不重复启动；远端CI仍验证必跑MySQL/PostgreSQL和Redis。未部署、未新增真实客户端策略验收；此校验不表示命名策略或地址簿分配已实现。

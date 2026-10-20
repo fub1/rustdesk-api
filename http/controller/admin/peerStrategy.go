@@ -81,6 +81,10 @@ func (ct *PeerStrategy) Create(c *gin.Context) {
 		response.Fail(c, 101, response.TranslateMsg(c, "ParamsError")+err.Error())
 		return
 	}
+	if !admin.ValidStrategyOptionKeys(f.ConfigOptions) {
+		response.Fail(c, 101, response.TranslateMsg(c, "ParamsError"))
+		return
+	}
 	errList := global.Validator.ValidStruct(c, f)
 	if len(errList) > 0 {
 		response.Fail(c, 101, errList[0])
@@ -119,6 +123,10 @@ func (ct *PeerStrategy) Update(c *gin.Context) {
 	f := &admin.PeerStrategyForm{}
 	if err := c.ShouldBindJSON(f); err != nil {
 		response.Fail(c, 101, response.TranslateMsg(c, "ParamsError")+err.Error())
+		return
+	}
+	if !admin.ValidStrategyOptionKeys(f.ConfigOptions) {
+		response.Fail(c, 101, response.TranslateMsg(c, "ParamsError"))
 		return
 	}
 	if f.Id == 0 {
@@ -237,6 +245,10 @@ func (ct *PeerStrategy) UpdateDefault(c *gin.Context) {
 		response.Fail(c, 101, response.TranslateMsg(c, "ParamsError")+err.Error())
 		return
 	}
+	if !admin.ValidStrategyOptionKeys(f.ConfigOptions) {
+		response.Fail(c, 101, response.TranslateMsg(c, "ParamsError"))
+		return
+	}
 	ps := f.ToPeerStrategy()
 	if err := service.AllService.PeerStrategyService.CreateOrUpdateDefault(ps); err != nil {
 		response.Fail(c, 101, response.TranslateMsg(c, "OperationFailed")+err.Error())
@@ -262,6 +274,10 @@ func (ct *PeerStrategy) UpdateDefaultUnbound(c *gin.Context) {
 	f := &admin.DefaultStrategyForm{}
 	if err := c.ShouldBindJSON(f); err != nil {
 		response.Fail(c, 101, response.TranslateMsg(c, "ParamsError")+err.Error())
+		return
+	}
+	if !admin.ValidStrategyOptionKeys(f.ConfigOptions) {
+		response.Fail(c, 101, response.TranslateMsg(c, "ParamsError"))
 		return
 	}
 	ps := f.ToPeerStrategy()

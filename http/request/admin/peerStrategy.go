@@ -14,6 +14,14 @@ type PeerStrategyForm struct {
 	ConfigOptions map[string]string `json:"config_options"`
 }
 
+// ValidStrategyOptionKeys mirrors the heartbeat reader's nonempty-key rule.
+// Nil/empty replacement documents and nonempty keys with empty values remain
+// valid; arbitrary client option names are not restricted to a server list.
+func ValidStrategyOptionKeys(options map[string]string) bool {
+	_, empty := options[""]
+	return !empty
+}
+
 // ToPeerStrategy 转换为 model.PeerStrategy
 func (f *PeerStrategyForm) ToPeerStrategy() *model.PeerStrategy {
 	// This is a full replacement form: missing/null options clear the policy.
