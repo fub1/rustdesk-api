@@ -71,6 +71,7 @@ func (s *Store) Assign(ctx context.Context, actor auth.Principal, input Input) e
 	err := s.db.WithContext(work).Transaction(func(tx *gorm.DB) error {
 		ids := []uint{actor.User.ID}
 		var targetUser model.User
+		var ownerCandidate model.Peer
 		if input.UserName.Present {
 			var candidates []model.User
 			if err := exact(tx, "username", input.UserName.Value).Order("id ASC").Limit(2).Find(&candidates).Error; err != nil {
@@ -80,15 +81,34 @@ func (s *Store) Assign(ctx context.Context, actor auth.Principal, input Input) e
 				return ErrInput
 			}
 			targetUser = candidates[0]
-			if targetUser.Id != actor.User.ID {
-				ids = append(ids, targetUser.Id)
+		} else if input.AddressBookName.Present {
+			// This unlocked read supplies only the user-lock candidate. Recheck
+			// it after locking users/session/peer; never acquire a new owner lock
+			// in reverse order while already holding the device row.
+			var candidates []model.Peer
+			if err := exact(tx, "id", input.ID).Select("row_id, id, uuid, user_id").Order("row_id ASC").Limit(2).Find(&candidates).Error; err != nil {
+				return err
 			}
+			if len(candidates) != 1 || candidates[0].Id != input.ID || candidates[0].Uuid != input.UUID {
+				return ErrNotFound
+			}
+			ownerCandidate = candidates[0]
+			if ownerCandidate.UserId == 0 {
+				return ErrInput
+			}
+			targetUser.Id = ownerCandidate.UserId
+		}
+		if targetUser.Id != 0 && targetUser.Id != actor.User.ID {
+			ids = append(ids, targetUser.Id)
 		}
 		sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
 		for _, id := range ids {
 			var user model.User
 			if err := locked(tx).First(&user, id).Error; err != nil {
 				if errors.Is(err, gorm.ErrRecordNotFound) {
+					if id != actor.User.ID {
+						return ErrInput
+					}
 					return auth.ErrUnauthenticated
 				}
 				return err
@@ -101,8 +121,8 @@ func (s *Store) Assign(ctx context.Context, actor auth.Principal, input Input) e
 					return auth.ErrForbidden
 				}
 			}
-			if input.UserName.Present && user.Id == targetUser.Id {
-				if user.Username != input.UserName.Value || user.Status != model.COMMON_STATUS_ENABLE {
+			if user.Id == targetUser.Id {
+				if input.UserName.Present && user.Username != input.UserName.Value || user.Status != model.COMMON_STATUS_ENABLE {
 					return ErrInput
 				}
 				targetUser = user
@@ -124,6 +144,9 @@ func (s *Store) Assign(ctx context.Context, actor auth.Principal, input Input) e
 		if len(peers) != 1 || peers[0].Id != input.ID || peers[0].Uuid != input.UUID {
 			return ErrNotFound
 		}
+		if input.AddressBookName.Present && !input.UserName.Present && (peers[0].UserId != targetUser.Id || peers[0].RowId != ownerCandidate.RowId) {
+			return ErrInput
+		}
 		values := map[string]any{}
 		if input.UserName.Present {
 			values["user_id"] = targetUser.Id
@@ -143,12 +166,29 @@ func (s *Store) Assign(ctx context.Context, actor auth.Principal, input Input) e
 				values[column] = field.Value
 			}
 		}
+		// The row is already locked and exists. A MySQL same-value UPDATE may
+		// report zero changed rows, which does not make this a missing target.
+		if len(values) != 0 {
+			if err := tx.Model(&model.Peer{}).Where("row_id = ?", peers[0].RowId).Updates(values).Error; err != nil {
+				return err
+			}
+		}
+		if input.AddressBookName.Present {
+			peer := peers[0]
+			if input.DeviceName.Present {
+				peer.Hostname = input.DeviceName.Value
+			}
+			if input.DeviceUsername.Present {
+				peer.Username = input.DeviceUsername.Value
+			}
+			if err := assignAddressBook(tx, targetUser.Id, peer, input); err != nil {
+				return err
+			}
+		}
 		if !actor.Session.ExpiresAt.After(s.now()) || sessions[0].ExpiredAt <= s.now().Unix() {
 			return auth.ErrUnauthenticated
 		}
-		// The row is already locked and exists. A MySQL same-value UPDATE may
-		// report zero changed rows, which does not make this a missing target.
-		return tx.Model(&model.Peer{}).Where("row_id = ?", peers[0].RowId).Updates(values).Error
+		return nil
 	})
 	if err == nil {
 		return nil

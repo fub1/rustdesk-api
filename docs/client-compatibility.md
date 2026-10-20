@@ -135,3 +135,9 @@ COMP02/03 当时未覆盖的 peer DELETE 与 tag 四个变更入口，已由后�
 本切片仅同步文档/JSON，没有重跑Go、实库、GUI或CI；保留指名测试作为历史证据。检查覆盖36项唯一method/path、01–35编号稳定、Sciter补漏、固定源码与本地测试/文档引用。
 
 独立复核修正：legacy `POST /api/audit/conn` 无Bearer，本地token仅入口门禁，忽略业务body；Flutter `PUT /api/audit` 只判HTTP200且需已有GUID，与legacy备注入口独立，并非fallback。个人密码保存 `{id,hash}` 与共享 `{id,password}` 互斥；record私有false开关无writer。完整字段Schema和全部错误路径尚未冻结。
+
+## PRE02-B 地址簿分配增量（2026-10-20）
+
+POST /api/devices/cli增加五个stock簿字段，规则见[CLI支持范围](device-cli.md)。支持精确现有owner命名簿的加入/窄更新，保留其他簿与Peer.AbId/Alias；原始共享Password不转换成个人Hash，标签是完整单名追加。旧同scope重复行不合并，空串只清指定附属文本。策略名仍整请求拒绝。schema保持279，30条注册/6条缺失及36契约数量不变。
+
+新增生产HTTP回读与拒绝、core事务故障，以及MySQL/PostgreSQL最后AB UPDATE后真实COMMIT故障回滚重试、双CLI与普通标签重命名、CLI与集合删除独立池竞争、集合各DELETE语句失败回滚重试。legacy集合更新/删除现参与owner排序锁并检查各SQL错误；此协调未解决所有历史管理控制器授权竞态或既有主簿引用删除政策。真实官方--assign、空响应Done与簿内密码/标签/备注刷新尚未执行；未部署，本批fixture不替代真实客户端验收。

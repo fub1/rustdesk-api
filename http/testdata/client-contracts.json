@@ -761,7 +761,13 @@
         "internal/integration/client_assignment_test.go:TestClientAssignmentRealCommitRollbackAndRetry",
         "internal/integration/client_assignment_test.go:TestClientAssignmentExactTargetsAndStaleAdmission",
         "internal/integration/client_assignment_test.go:TestClientAssignmentConcurrentPoolsAndAnonymousReports",
-        "internal/integration/client_assignment_test.go:TestClientAssignmentNote279RealMigrationRetry"
+        "internal/integration/client_assignment_test.go:TestClientAssignmentNote279RealMigrationRetry",
+        "http/device_cli_addressbook_test.go:TestClientDeviceCLIAddressBookReadbackAndPermissions",
+        "http/device_cli_addressbook_test.go:TestClientDeviceCLIAddressBookRejectsShapeAndUnauthorizedWrites",
+        "internal/integration/client_assignment_addressbook_test.go:TestClientAssignmentAddressBookExactScopeAndRollback",
+        "internal/integration/client_assignment_addressbook_test.go:TestClientAssignmentAddressBookConcurrentClientTagWrites",
+        "internal/integration/client_assignment_addressbook_test.go:TestClientAssignmentAddressBookConcurrentCollectionDelete",
+        "internal/integration/client_assignment_addressbook_test.go:TestLegacyCollectionRealStatementRollbackAndRetry"
       ],
       "fixture_status": "production_http_and_real_engine_partial_assignment_not_real_cli",
       "client_variants": [
@@ -797,17 +803,22 @@
       "field_freeze_status": "source_summary_not_complete_JSON_Schema",
       "verification_level": "production_router_http_sqlite_and_real_engine_store",
       "implementation_update": {
-        "task": "PRE01-B",
+        "task": "PRE02-B",
         "supported_fields": [
           "user_name",
           "device_group_name",
           "device_name",
           "device_username",
-          "note"
+          "note",
+          "address_book_name",
+          "address_book_tag",
+          "address_book_alias",
+          "address_book_password",
+          "address_book_note"
         ],
-        "semantics": "existing exact id/uuid target; current administrator/session/expiry rechecked in transaction, exact unique names, omitted fields preserve, empty display/note clears; committed success is empty200",
-        "unsupported": "all book/strategy and unknown fields rejected as whole request, including empty/null; no partial success",
-        "schema": "approved peers.note nonnull text empty default, database279; no new table",
+        "semantics": "existing administrator and target checks; join/update one exact existing named book owned by explicit user_name or current peer owner, keep other books and Peer.AbId/Alias; omitted book texts preserve, empty clear; raw Password, one complete tag append/dedupe, missing tag color0; all duplicate scoped rows narrow-updated in same transaction",
+        "unsupported": "strategy_name and unknown fields rejected as whole request, including empty/null; book attachments require nonempty book name",
+        "schema": "unchanged version279; no new table or column in PRE02-B",
         "real_client": "official --assign not run; no deployment"
       }
     },
@@ -2847,6 +2858,16 @@
       "ci": "exact commit Actions authoritative",
       "real_client": "not run; not deployed",
       "schema": "only approved peers.note, version279"
+    },
+    {
+      "task": "PRE02-B",
+      "source_inventory_unchanged": true,
+      "business_scope": "administrator CLI named-book join; existing fields only; legacy collection update/delete owner coordination and checked transaction errors",
+      "schema": "unchanged279",
+      "local_targeted_checks": "HTTP/core and real MySQL/PostgreSQL exact scope, duplicate rows, final AB UPDATE actual COMMIT rollback/retry, independent CLI/tag rename and CLI/collection delete pools, each collection DELETE stage fault rollback/retry",
+      "ci": "exact commit Actions authoritative",
+      "real_client": "official --assign and new book/password/tag acceptance not run; not deployed",
+      "remaining": "named strategy implementation and approved device-association model section; legacy controller authorization race and main-book deletion policy remain separate"
     }
   ]
 }

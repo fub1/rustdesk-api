@@ -2,10 +2,13 @@ package service
 
 import (
 	"encoding/json"
+	"errors"
 	"github.com/google/uuid"
 	"github.com/lejianwen/rustdesk-api/v2/model"
 	"github.com/lejianwen/rustdesk-api/v2/model/custom_types"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
+	"sort"
 	"strings"
 	"sync"
 )
@@ -333,16 +336,84 @@ func (s *AddressBookService) CreateCollection(t *model.AddressBookCollection) er
 }
 
 func (s *AddressBookService) UpdateCollection(t *model.AddressBookCollection) error {
-	return DB.Model(t).Updates(t).Error
+	if t == nil {
+		return gorm.ErrRecordNotFound
+	}
+	return collectionTransaction(DB, t.Id, t.UserId, nil, func(tx *gorm.DB, _ *model.AddressBookCollection) error {
+		// Preserve the legacy struct-update contract: omitted/zero fields are
+		// not clears, and an explicit nonzero owner may transfer the collection.
+		return tx.Model(t).Updates(t).Error
+	})
 }
 
 func (s *AddressBookService) DeleteCollection(t *model.AddressBookCollection) error {
-	//删除集合下的所有规则、地址簿，再删除集合
-	tx := DB.Begin()
-	tx.Where("collection_id = ?", t.Id).Delete(&model.AddressBookCollectionRule{})
-	tx.Where("collection_id = ?", t.Id).Delete(&model.AddressBook{})
-	tx.Delete(t)
-	return tx.Commit().Error
+	if t == nil {
+		return gorm.ErrRecordNotFound
+	}
+	var expectedOwner *uint
+	if t.UserId != 0 {
+		// Both existing HTTP callers pass their pre-read collection. A stale
+		// owner must not delete a collection transferred after that read.
+		expectedOwner = &t.UserId
+	}
+	return collectionTransaction(DB, t.Id, 0, expectedOwner, func(tx *gorm.DB, current *model.AddressBookCollection) error {
+		for _, row := range []any{&model.AddressBookCollectionRule{}, &model.AddressBook{}} {
+			if err := tx.Where("collection_id = ?", current.Id).Delete(row).Error; err != nil {
+				return err
+			}
+		}
+		return tx.Delete(current).Error
+	})
+}
+
+// collectionTransaction coordinates legacy rename/transfer/delete with the
+// owner's client writes and CLI assignment. Never acquire a peer lock here:
+// heartbeat and CLI both acquire the peer before a collection. The read before
+// the transaction is only a candidate; ownership is rechecked after all user
+// locks and the collection lock have been acquired.
+func collectionTransaction(db *gorm.DB, id, nextOwner uint, expectedOwner *uint, mutate func(*gorm.DB, *model.AddressBookCollection) error) error {
+	if id == 0 {
+		return gorm.ErrRecordNotFound
+	}
+	if db == nil || db.Error != nil {
+		return errors.New("collection database unavailable")
+	}
+	var candidate model.AddressBookCollection
+	if err := db.Select("id", "user_id").First(&candidate, id).Error; err != nil {
+		return err
+	}
+	if expectedOwner != nil && candidate.UserId != *expectedOwner {
+		return errors.New("collection owner changed")
+	}
+	return db.Transaction(func(tx *gorm.DB) error {
+		owners := []uint{}
+		for _, owner := range []uint{candidate.UserId, nextOwner} {
+			if owner != 0 && (len(owners) == 0 || owners[0] != owner) {
+				owners = append(owners, owner)
+			}
+		}
+		sort.Slice(owners, func(i, j int) bool { return owners[i] < owners[j] })
+		lock := func(query *gorm.DB) *gorm.DB {
+			if tx.Dialector.Name() != "sqlite" {
+				return query.Clauses(clause.Locking{Strength: "UPDATE"})
+			}
+			return query
+		}
+		for _, owner := range owners {
+			var user model.User
+			if err := lock(tx).First(&user, owner).Error; err != nil {
+				return err
+			}
+		}
+		var current model.AddressBookCollection
+		if err := lock(tx).First(&current, id).Error; err != nil {
+			return err
+		}
+		if current.UserId != candidate.UserId {
+			return errors.New("collection owner changed")
+		}
+		return mutate(tx, &current)
+	})
 }
 
 func (s *AddressBookService) RuleInfoById(u uint) *model.AddressBookCollectionRule {
