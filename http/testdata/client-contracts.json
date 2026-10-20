@@ -73,7 +73,8 @@
       "route_status": "route_present",
       "coverage": "covered_partial",
       "existing_partial_tests": [
-        "http/user_profile_compat_test.go:TestClientProfileCurrentAndLocalLogin"
+        "http/user_profile_compat_test.go:TestClientProfileCurrentAndLocalLogin",
+        "http/local_login_stage_test.go:TestClientLocalLoginRejectsUnsupportedStages"
       ],
       "fixture_status": "local_production_http_sqlite_profile_tested_not_real_client",
       "client_variants": [
@@ -200,6 +201,12 @@
       "contract_document": "docs/client-api-1.5.0.md#contract-02",
       "route_registered_at_inventory_revision": true,
       "field_freeze_status": "source_summary_not_complete_JSON_Schema",
+      "stage_guard_update": {
+        "task": "SEC08-A",
+        "semantics": "account or omitted type only; reject unsupported stages and any verificationCode/tfaCode/secret presence before password or LDAP verification; no local MFA enabled",
+        "verification": "26 HTTP rejection cases with raw users/tokens/logs/peers unchanged; 2 ordinary login cases with actual token authentication",
+        "real_client": "not run; local email/TOTP challenge and enrollment intentionally unsupported per user decision, not planned work"
+      },
       "implementation_update": {
         "task": "COMP11",
         "semantics": "explicit local nickname/display_name and avatar, including empty strings; original response envelope and authorization scope retained",

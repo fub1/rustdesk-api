@@ -1,5 +1,7 @@
 package api
 
+import "encoding/json"
+
 /*
 *
 
@@ -36,6 +38,16 @@ type LoginForm struct {
 	Uuid       string            `json:"uuid"  label:"uuid"`
 	Username   string            `json:"username" validate:"required,gte=2,lte=32" label:"用户名"`
 	Password   string            `json:"password,omitempty" validate:"gte=4,lte=32" label:"密码"`
+	// Presence matters: even null/empty challenge fields cannot be silently
+	// downgraded to an ordinary password login while SEC08 is unsupported.
+	VerificationCode json.RawMessage `json:"verificationCode"`
+	TfaCode          json.RawMessage `json:"tfaCode"`
+	Secret           json.RawMessage `json:"secret"`
+}
+
+func (f *LoginForm) IsPasswordStage() bool {
+	return (f.Type == "" || f.Type == "account") &&
+		len(f.VerificationCode) == 0 && len(f.TfaCode) == 0 && len(f.Secret) == 0
 }
 
 type UserListQuery struct {

@@ -41,7 +41,7 @@ COMP08 切片已通过 Go1.23.10/CGO1 的全仓 race/vet/build、生产 router+S
 | 编号 | 回归范围 | HTTP 与数据库必须共同验证 | 盘点状态 |
 | --- | --- | --- | --- |
 | 01 | GET login-options；HEAD 连通性探测另列 | 顶层字符串数组；OIDC provider 名称；HEAD 不带响应体，不与能力支持计数混用 | 路由存在，待业务回归 |
-| 02 | POST login | account 登录、deviceInfo、顶层 token/type/user.info；禁用/坏密码；失败不写会话或登录日志 | COMP11 已测生产密码登录的资料投影；完整多阶段登录仍属 SEC08 |
+| 02 | POST login | account 登录、deviceInfo、顶层 token/type/user.info；禁用/坏密码；失败不写会话或登录日志 | COMP11 已测资料投影；SEC08-A 验证26个未支持阶段/混入验证字段请求400且零副写、2个正常分支令牌回读；依最新决定不建设本地邮箱/TOTP挑战；普通登录真实回归待验 |
 | 03–04 | currentUser/logout | 顶层用户、401 清账号；撤销 DB token；退出不依赖客户端收到 ACK | 已有部分真实路由+SQLite 回归 |
 | 05–06 | OIDC auth/auth-query | code/url、固定 pending 原文、native envelope；路由/设备隔离；真实 TLS IdP→身份→本地 session 事务 | 已有部分真实路由+SQLite+TLS 回归 |
 | 07 | heartbeat | 匿名设备上报形状；相同版本 `{}`；修改、删除、默认切换后的 config_options；UUID 边界；失败不当成功 | COMP05 已实现，核心与生产 HTTP+SQLite 定向 race 通过；未运行真实 Rust 客户端 |

@@ -114,6 +114,8 @@ API入口/实现：[http/router/api.go:34](../http/router/api.go#L34)、[http/co
 
 API基线：`route_only`；普通account返回access_token；email_code/verificationCode/tfaCode/secret未建模或dispatch；多阶段为条件能力，非已批准新增schema。见F3、F7
 
+SEC08-A 更新：普通 `account` 和兼容的省略 type 仍签发会话；其他 type，以及普通登录中出现 verificationCode/tfaCode/secret（包括空串和 null），在密码/LDAP 认证与签发前返回 HTTP 400 error 对象。固定客户端首轮请求省略这三个字段。`TestClientLocalLoginRejectsUnsupportedStages` 覆盖26个拒绝组合的用户/会话/登录日志/设备零副写及2个正常登录后令牌回读。依用户最新决定，不建设本地邮箱/TOTP 验证或注册/挑战模型；这些可选阶段明确不支持，不再列为待开发。普通密码/OIDC 的真实客户端回归仍待；历史基线描述保留原时点。
+
 - **account**（`source_reachable`）：Flutter account login UI; disable-account gate in callers
   - Header：F default JSON; no Bearer
   - 请求：username,password,id,uuid,autoLogin:true,type:account,deviceInfo{os,type,name}
