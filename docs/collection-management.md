@@ -53,8 +53,12 @@ Successful deletion only removes its checked, locked session IDs. Other SQL
 and COMMIT failures also roll back without exposing SQL text.
 
 This legacy service signature does not add fresh administrator authorization
-to the old user-delete controller. Last-administrator concurrent deletion and
-legacy UserThird autocommit late writes are still outside this slice. Entry,
+to the old user-delete controller. Last-administrator concurrent deletion is
+still outside LEG01B. A later defensive slice rejects `BindOauthUser`, the old
+provider-name identity writer, just as legacy OAuth registration is rejected.
+Its old HTTP callers were already unregistered; this is a service-boundary
+closure, not a claim of an active registered HTTP exploit. Historical UserThird
+reads and deletion cleanup remain available; no identities are migrated. Entry,
 tag and sharing-rule writes use the instance stores described below. The
 existing anonymous shared-name listing is unchanged.
 

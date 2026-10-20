@@ -359,15 +359,11 @@ func (os *OauthService) UserThirdInfo(op string, openId string) *model.UserThird
 	return ut
 }
 
-// BindOauthUser: Bind third party account
+// BindOauthUser deliberately rejects legacy provider-name identity admission.
+// New associations require the verified issuer/sub OIDC identity transaction.
+// Historical UserThird records remain available for reads and deletion cleanup.
 func (os *OauthService) BindOauthUser(userId uint, oauthUser *model.OauthUser, op string) error {
-	utr := &model.UserThird{}
-	err, oauthType := os.GetTypeByOp(op)
-	if err != nil {
-		return err
-	}
-	utr.FromOauthUser(userId, oauthUser, oauthType, op)
-	return DB.Create(utr).Error
+	return errors.New("legacy OAuth binding is unsupported; use verified OIDC identity admission")
 }
 
 // UnBindOauthUser: Unbind third party account
