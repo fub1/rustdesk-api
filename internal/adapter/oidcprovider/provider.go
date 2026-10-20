@@ -100,9 +100,11 @@ func (p *Provider) prepare(ctx context.Context) (*preparedProvider, error) {
 	if ready != nil {
 		return ready, nil
 	}
-	discovered, err := oidc.NewProvider(oidc.ClientContext(ctx, p.client), p.config.Issuer)
+	phase, cancel := networkPhase(ctx, p.client)
+	defer cancel()
+	discovered, err := oidc.NewProvider(oidc.ClientContext(phase, p.client), p.config.Issuer)
 	if err != nil {
-		return nil, unavailable(ctx, err)
+		return nil, unavailable(phase, err)
 	}
 	var info metadata
 	if err := discovered.Claims(&info); err != nil || info.Issuer != p.config.Issuer {
@@ -168,9 +170,9 @@ func (p *Provider) Exchange(ctx context.Context, code, nonce, verifier string) (
 	if err != nil {
 		return Identity{}, err
 	}
-	token, err := ready.oauth.Exchange(oidc.ClientContext(ctx, p.client), code, oauth2.VerifierOption(verifier))
+	token, err := p.exchangeToken(ctx, ready, code, verifier)
 	if err != nil {
-		return Identity{}, unavailable(ctx, err)
+		return Identity{}, err
 	}
 	rawIDToken, ok := token.Extra("id_token").(string)
 	if !ok || rawIDToken == "" || token.AccessToken == "" {
@@ -208,6 +210,8 @@ func (p *Provider) Exchange(ctx context.Context, code, nonce, verifier string) (
 }
 
 func (p *Provider) userInfo(ctx context.Context, endpoint, accessToken, subject string) (Identity, error) {
+	ctx, cancel := networkPhase(ctx, p.client)
+	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
 		return Identity{}, ErrConfiguration
@@ -250,6 +254,8 @@ type requestKeySet struct {
 }
 
 func (k *requestKeySet) VerifySignature(ctx context.Context, raw string) ([]byte, error) {
+	ctx, cancel := networkPhase(ctx, k.client)
+	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, k.url, nil)
 	if err != nil {
 		k.failure = ErrConfiguration
@@ -300,6 +306,24 @@ func decodeResponse(body io.Reader, value interface{}) error {
 		return ErrUnavailable
 	}
 	return json.Unmarshal(data, value)
+}
+
+// SDKs can discard a response-body error's cause while formatting it. Own each
+// request deadline so classification does not depend on that wrapping. Keep
+// Client.Timeout as well, including its legacy Transport cancellation fallback.
+// Each phase inherits the caller deadline and gets its own normalized budget.
+func networkPhase(parent context.Context, client *http.Client) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(parent, client.Timeout)
+}
+
+func (p *Provider) exchangeToken(ctx context.Context, ready *preparedProvider, code, verifier string) (*oauth2.Token, error) {
+	phase, cancel := networkPhase(ctx, p.client)
+	defer cancel()
+	token, err := ready.oauth.Exchange(oidc.ClientContext(phase, p.client), code, oauth2.VerifierOption(verifier))
+	if err != nil {
+		return nil, unavailable(phase, err)
+	}
+	return token, nil
 }
 
 func unavailable(ctx context.Context, cause error) error {

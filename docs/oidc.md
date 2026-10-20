@@ -151,6 +151,14 @@ so no background fetch continues after request cancellation and key rotation
 does not depend on a stale local key cache. This trades extra login-time network
 requests for simple bounded behavior; ordinary API authentication stays local.
 
+Each network phase also carries its own context deadline using the normalized
+HTTP client budget (at most ten seconds), bounded by the caller's earlier
+deadline. A completed phase does not cancel or spend the next phase's separate
+budget. The HTTP client timeout remains enabled. This preserves typed deadline
+classification even when an SDK wraps response-body read errors without their
+original error chain. Returned failures stay sanitized; malformed responses and
+ordinary provider failures do not become timeouts merely because they failed.
+
 Tests cover real TLS Discovery/token/JWKS/UserInfo, real SQLite transactions,
 concurrent callbacks/polls, response recovery, faults/cancellation, and the
 production router's native/admin/local-session contracts. They do not establish
