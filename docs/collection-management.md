@@ -35,13 +35,51 @@ The lock order is sorted users, session, collection; delete performs two current
 reference counts at READ COMMITTED and never locks peers after the collection.
 SQL/COMMIT failures roll back and return safe errors rather than SQL text.
 
-The relation has no native foreign key. The reference guard requires every
-binding writer to participate in the same owner/collection protocol; the guard
-alone cannot prevent an unrelated late writer. User deletion and the legacy
-primary-book writer still require the next implementation slice before the
-end-to-end reference rule can be marked complete. Legacy entry/tag/sharing-rule
-write scopes are a separate rule and implementation slice. The existing
-anonymous shared-name listing is unchanged.
+LEG01B extends this rule to deletion of the owning user and the legacy
+`PeerService.UpdateAlias` binding writer. User deletion checks actual references
+before cleaning any collection; unreferenced collections and their children,
+identities, sessions, personal tags and peer ownership are cleaned atomically.
+Binding locks the candidate owner, peer and existing collection, then verifies
+the owner again. Historical owner-zero collections skip the user lock but
+retain the collection lock. Missing targets or ownership drift fail without
+changing the peer. The relation has no new native foreign key.
+
+User deletion uses NOWAIT for existing identity and session token groups. If
+these are busy, the entire deletion returns a safe unavailable error with no
+business changes; retry after the concurrent operation completes. Token groups
+use the same token-index access path as session revocation, avoiding the two
+MySQL secondary-index/primary-key deadlocks reproduced during verification.
+Successful deletion only removes its checked, locked session IDs. Other SQL
+and COMMIT failures also roll back without exposing SQL text.
+
+This legacy service signature does not add fresh administrator authorization
+to the old user-delete controller. Last-administrator concurrent deletion and
+legacy UserThird autocommit late writes are still outside this slice. Legacy
+entry/tag/sharing-rule write scopes and atomic entry/peer updates are separate
+implementation slices: the old entry controller still commits the entry before
+calling the guarded peer writer. The existing anonymous shared-name listing is
+unchanged.
+
+## Confirmed next write rules
+
+The `my` entry/tag/sharing-rule writers manage only books owned by the current
+user, including personal books. Owner 1 has no special bypass. Administrators
+also validate the actual collection owner. Shared grants continue to authorize
+client `/api/ab` writes through its existing permission rules.
+
+Ordinary edits preserve the original owner, book and entry's device identity.
+Omitted, zero or unchanged ownership/book values preserve the original scope;
+another value is rejected. Moving entries uses add-to-target and delete-from-
+source. No migration endpoint or model is added.
+
+Tag rename/delete rewrites entry tag arrays only in the same owner/book and
+commits with the definitions. Other entry fields remain unchanged. Only an
+administrator's entry update retains the peer primary-book/alias/hostname/user
+name side effect, in the same transaction. `my` create and administrator batch
+add no longer independently change the peer alias. Administrator entry delete
+clears primary-book/alias only when that actual primary book matches its book.
+These are confirmed rules for the following slices, not completed delivery in
+LEG01B.
 
 Automated HTTP tests include persistent revocation, disablement, demotion and
 expiration injected after authentication middleware has passed. Core tests

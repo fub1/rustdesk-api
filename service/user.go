@@ -2,18 +2,22 @@ package service
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"math/rand"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/lejianwen/rustdesk-api/v2/internal/auth"
+	"github.com/lejianwen/rustdesk-api/v2/internal/collectionguard"
 	"github.com/lejianwen/rustdesk-api/v2/model"
 	"github.com/lejianwen/rustdesk-api/v2/model/custom_types"
 	"github.com/lejianwen/rustdesk-api/v2/utils"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 	"gorm.io/gorm/logger"
 )
 
@@ -23,6 +27,8 @@ type UserService struct {
 	issuanceErr error
 	authTimeout time.Duration
 }
+
+var errLastAdminDelete = errors.New("The last admin user cannot be deleted")
 
 // InfoById 根据用户id取用户信息
 func (us *UserService) InfoById(id uint) *model.User {
@@ -242,10 +248,22 @@ func (us *UserService) DeleteContext(ctx context.Context, u *model.User) error {
 	}
 	ctx, cancel := us.operationContext(ctx)
 	defer cancel()
-	return us.db.Session(&gorm.Session{Logger: logger.Default.LogMode(logger.Silent)}).WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	db := us.db.Session(&gorm.Session{Logger: logger.Default.LogMode(logger.Silent)}).WithContext(ctx)
+	err := db.Transaction(func(tx *gorm.DB) error {
 		var current model.User
-		if err := tx.First(&current, u.Id).Error; err != nil {
+		if err := lifecycleRows(tx).First(&current, u.Id).Error; err != nil {
 			return err
+		}
+		// Login can hold an identity before waiting for this user. Never wait
+		// for that identity in the opposite order: fail this whole deletion.
+		for _, rows := range []any{&[]model.OIDCIdentity{}, &[]model.UserThird{}} {
+			query := tx.Select("id").Where("user_id = ?", current.Id).Order("id ASC")
+			if tx.Dialector.Name() != "sqlite" {
+				query = query.Clauses(clause.Locking{Strength: "UPDATE", Options: "NOWAIT"})
+			}
+			if err := query.Find(rows).Error; err != nil {
+				return referenceWriteError(tx, err)
+			}
 		}
 		if us.IsAdmin(&current) {
 			var count int64
@@ -253,20 +271,163 @@ func (us *UserService) DeleteContext(ctx context.Context, u *model.User) error {
 				return err
 			}
 			if count <= 1 {
-				return errors.New("The last admin user cannot be deleted")
+				return errLastAdminDelete
 			}
 		}
-		for _, row := range []interface{}{&model.OIDCIdentity{}, &model.UserThird{}, &model.UserToken{},
-			&model.AddressBook{}, &model.AddressBookCollection{}, &model.AddressBookCollectionRule{}} {
+		var candidates []model.AddressBookCollection
+		if err := tx.Select("id,user_id").Where("user_id = ?", current.Id).Order("id ASC").Find(&candidates).Error; err != nil {
+			return err
+		}
+		cids := make([]uint, 0, len(candidates))
+		for _, row := range candidates {
+			cids = append(cids, row.Id)
+		}
+		if err := collectionguard.EnsureUnreferenced(tx, cids); err != nil {
+			return err
+		}
+		// Revoke locks the token index before the session PK. Use that same
+		// access path, with NOWAIT so a busy group rolls back this whole delete.
+		var sessions []model.UserToken
+		if err := tx.Select("id,token").Where("user_id = ?", current.Id).Order("id ASC").Find(&sessions).Error; err != nil {
+			return err
+		}
+		groups := make(map[string]bool, len(sessions))
+		candidatesByID := make(map[uint]string, len(sessions))
+		for _, candidate := range sessions {
+			groups[candidate.Token] = true
+			candidatesByID[candidate.Id] = candidate.Token
+		}
+		tokens := make([]string, 0, len(groups))
+		for token := range groups {
+			tokens = append(tokens, token)
+		}
+		sort.Strings(tokens)
+		lockedSessions := map[uint]bool{}
+		for _, token := range tokens {
+			var rows []model.UserToken
+			if err := lifecycleSessionGroup(tx, token).Select("id,user_id,token").Find(&rows).Error; err != nil {
+				return referenceWriteError(tx, err)
+			}
+			for _, row := range rows {
+				if expected, exists := candidatesByID[row.Id]; exists && row.UserId == current.Id && row.Token == expected {
+					lockedSessions[row.Id] = true
+				}
+			}
+		}
+		// A revoked row may disappear. A still-owned candidate whose token
+		// changed cannot be silently left behind by this deletion.
+		for _, candidate := range sessions {
+			if lockedSessions[candidate.Id] {
+				continue
+			}
+			var remaining model.UserToken
+			if err := tx.Select("id,user_id,token").First(&remaining, candidate.Id).Error; err != nil {
+				if errors.Is(err, gorm.ErrRecordNotFound) {
+					continue
+				}
+				return err
+			}
+			if remaining.UserId == current.Id {
+				return collectionguard.ErrUnavailable
+			}
+		}
+		var peers []model.Peer
+		if err := tx.Select("row_id").Where("user_id = ?", current.Id).Order("row_id ASC").Find(&peers).Error; err != nil {
+			return err
+		}
+		peerIDs := make([]uint, 0, len(peers))
+		for _, candidate := range peers {
+			var peer model.Peer
+			if err := lifecyclePrimaryRows(tx, "peers").Select("row_id,user_id").First(&peer, candidate.RowId).Error; err != nil {
+				if errors.Is(err, gorm.ErrRecordNotFound) {
+					continue
+				}
+				return err
+			}
+			if peer.UserId == current.Id {
+				peerIDs = append(peerIDs, peer.RowId)
+			}
+		}
+		for _, cid := range cids {
+			var collection model.AddressBookCollection
+			if err := lifecycleRows(tx).First(&collection, cid).Error; err != nil {
+				return err
+			}
+			if collection.UserId != current.Id {
+				return collectionguard.ErrInput
+			}
+		}
+		if err := collectionguard.EnsureUnreferenced(tx, cids); err != nil {
+			return err
+		}
+		for _, cid := range cids {
+			if err := collectionguard.DeleteContents(tx, cid); err != nil {
+				return err
+			}
+		}
+		for _, row := range []interface{}{&model.OIDCIdentity{}, &model.UserThird{},
+			&model.AddressBook{}, &model.AddressBookCollectionRule{}, &model.Tag{}} {
 			if err := tx.Where("user_id = ?", u.Id).Delete(row).Error; err != nil {
 				return err
 			}
 		}
-		if err := tx.Model(&model.Peer{}).Where("user_id = ?", u.Id).Update("user_id", 0).Error; err != nil {
-			return err
+		sessionIDs := make([]uint, 0, len(lockedSessions))
+		for id := range lockedSessions {
+			sessionIDs = append(sessionIDs, id)
 		}
-		return tx.Delete(&current).Error
-	})
+		sort.Slice(sessionIDs, func(i, j int) bool { return sessionIDs[i] < sessionIDs[j] })
+		for _, id := range sessionIDs {
+			deleted := tx.Where("id = ?", id).Delete(&model.UserToken{})
+			if deleted.Error != nil {
+				return deleted.Error
+			}
+			if deleted.RowsAffected != 1 {
+				return collectionguard.ErrUnavailable
+			}
+		}
+		for _, id := range peerIDs {
+			if err := tx.Model(&model.Peer{}).Where("row_id = ?", id).Update("user_id", 0).Error; err != nil {
+				return err
+			}
+		}
+		deleted := tx.Delete(&current)
+		if deleted.Error != nil {
+			return deleted.Error
+		}
+		if deleted.RowsAffected != 1 {
+			return collectionguard.ErrUnavailable
+		}
+		return nil
+	}, &sql.TxOptions{Isolation: sql.LevelReadCommitted})
+	return referenceWriteError(db, err)
+}
+
+func lifecycleRows(tx *gorm.DB) *gorm.DB {
+	if tx.Dialector.Name() != "sqlite" {
+		return tx.Clauses(clause.Locking{Strength: "UPDATE"})
+	}
+	return tx
+}
+
+// Lock a known peer PK without first taking a user_id secondary-index lock.
+// The caller passes a fixed table name, never request input.
+func lifecyclePrimaryRows(tx *gorm.DB, table string) *gorm.DB {
+	query := lifecycleRows(tx)
+	if tx.Dialector.Name() == "mysql" {
+		query = query.Clauses(clause.From{Tables: []clause.Table{{Name: table + " FORCE INDEX (PRIMARY)", Raw: true}}})
+	}
+	return query
+}
+
+func lifecycleSessionGroup(tx *gorm.DB, token string) *gorm.DB {
+	query := tx.Where("token = ?", token).Order("id ASC")
+	if tx.Dialector.Name() != "sqlite" {
+		query = query.Clauses(clause.Locking{Strength: "UPDATE", Options: "NOWAIT"})
+	}
+	if tx.Dialector.Name() == "mysql" {
+		query = query.Clauses(clause.From{Tables: []clause.Table{{Name: "user_tokens FORCE INDEX (idx_user_tokens_token)", Raw: true}}})
+	}
+	return query
 }
 
 // Update 更新

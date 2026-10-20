@@ -2,8 +2,10 @@ package service
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"github.com/lejianwen/rustdesk-api/v2/internal/adapter/heartbeatstore"
+	"github.com/lejianwen/rustdesk-api/v2/internal/collectionguard"
 	"github.com/lejianwen/rustdesk-api/v2/internal/heartbeat"
 	log "github.com/sirupsen/logrus"
 
@@ -210,12 +212,77 @@ func (ps *PeerService) ClearAlias(rowId uint) error {
 
 // UpdateAlias 更新设备别名（支持空值写入）
 func (ps *PeerService) UpdateAlias(rowId, abId uint, alias, username, hostname string) error {
-	return DB.Model(&model.Peer{}).Where("row_id = ?", rowId).Updates(map[string]interface{}{
-		"ab_id":    abId,
-		"alias":    alias,
-		"username": username,
-		"hostname": hostname,
-	}).Error
+	if rowId == 0 {
+		return collectionguard.ErrInput
+	}
+	db := DB // freeze the legacy connection boundary before the first query
+	if db == nil || db.Error != nil {
+		return collectionguard.ErrUnavailable
+	}
+	var candidate model.AddressBookCollection
+	if abId != 0 {
+		err := db.Select("id,user_id").First(&candidate, abId).Error
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return collectionguard.ErrInput
+		}
+		if err != nil {
+			return referenceWriteError(db, err)
+		}
+	}
+	err := db.Transaction(func(tx *gorm.DB) error {
+		if abId != 0 && candidate.UserId != 0 {
+			var owner model.User
+			if err := lifecycleRows(tx).First(&owner, candidate.UserId).Error; err != nil {
+				if errors.Is(err, gorm.ErrRecordNotFound) {
+					return collectionguard.ErrInput
+				}
+				return err
+			}
+		}
+		var peer model.Peer
+		if err := lifecycleRows(tx).Select("row_id").First(&peer, rowId).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return collectionguard.ErrInput
+			}
+			return err
+		}
+		if abId != 0 {
+			var current model.AddressBookCollection
+			if err := lifecycleRows(tx).First(&current, abId).Error; err != nil {
+				if errors.Is(err, gorm.ErrRecordNotFound) {
+					return collectionguard.ErrInput
+				}
+				return err
+			}
+			if current.Id != candidate.Id || current.UserId != candidate.UserId {
+				return collectionguard.ErrInput
+			}
+		}
+		// Owner0/disabled historical parents retain their existing semantics.
+		// Same-value MySQL updates may report zero changed rows; peer exists
+		// under its lock, so zero is not a missing-target signal.
+		return tx.Model(&model.Peer{}).Where("row_id = ?", peer.RowId).Updates(map[string]interface{}{
+			"ab_id": abId, "alias": alias, "username": username, "hostname": hostname,
+		}).Error
+	}, &sql.TxOptions{Isolation: sql.LevelReadCommitted})
+	return referenceWriteError(db, err)
+}
+
+func referenceWriteError(db *gorm.DB, err error) error {
+	if err == nil {
+		return nil
+	}
+	if db != nil && db.Statement != nil && db.Statement.Context != nil {
+		if canceled := db.Statement.Context.Err(); canceled != nil {
+			return canceled
+		}
+	}
+	for _, known := range []error{collectionguard.ErrInput, collectionguard.ErrReferenced, collectionguard.ErrUnavailable, gorm.ErrRecordNotFound, errLastAdminDelete, context.Canceled, context.DeadlineExceeded} {
+		if errors.Is(err, known) {
+			return known
+		}
+	}
+	return collectionguard.ErrUnavailable
 }
 
 // UpdatePresets 仅更新预设地址簿字段（支持空值写入）
