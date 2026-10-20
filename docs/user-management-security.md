@@ -24,10 +24,18 @@ self-deletion, self-disablement, self-demotion or password change is not rolled
 back merely because the operation intentionally invalidates its own session.
 
 Disabling a user atomically revokes all that user's local sessions, including
-sessions issued after OIDC login. Re-enabling never restores those tokens.
+sessions issued after OIDC login. Re-enabling also revokes historical leftover
+tokens for an already disabled/non-enabled account, so upgrading cannot restore
+its old credentials. Enabled-to-enabled metadata edits do not revoke sessions.
 Password reset and current-user password change retain their existing all-local-
 sessions revocation. Logout still revokes its current session. These operations
 do not invoke IdP logout or terminate established remote-control connections.
+
+Legacy password-hash upgrades compare and replace only the hash actually
+verified. A concurrent password reset or failed SQL update cannot return a stale
+user credential for session issuance. Issuance still checks the current stored
+hash before committing a new session. Upgrade SQL uses the silent credential
+logger; a successful retry must verify the current password again.
 
 Target-session revocation shares the token-index NOWAIT protocol with checked
 user cleanup. Busy token groups return a safe unavailable error with no partial

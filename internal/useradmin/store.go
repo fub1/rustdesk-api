@@ -169,7 +169,9 @@ func (s *Store) Update(ctx context.Context, actor auth.Principal, in UserInput) 
 				return err
 			}
 		}
-		if next.Status != model.COMMON_STATUS_ENABLE {
+		// Upgrading an inactive account may encounter sessions predating the
+		// disable policy; enabling it must require fresh login as well.
+		if current.Status != model.COMMON_STATUS_ENABLE || next.Status != model.COMMON_STATUS_ENABLE {
 			return userlifecycle.RevokeLocked(tx, current.Id)
 		}
 		return nil

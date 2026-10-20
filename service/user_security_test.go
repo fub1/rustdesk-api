@@ -3,9 +3,12 @@ package service
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
+	"github.com/lejianwen/rustdesk-api/v2/internal/app"
+	"github.com/lejianwen/rustdesk-api/v2/internal/auth"
 	"github.com/lejianwen/rustdesk-api/v2/internal/userguard"
 	"github.com/lejianwen/rustdesk-api/v2/model"
 )
@@ -98,5 +101,55 @@ func TestLegacyUpdateDeleteProtectLastEnabledAdminAndNilRole(t *testing.T) {
 				t.Fatal("last admin changed despite rejection", err)
 			}
 		})
+	}
+}
+
+func TestLegacyAndLDAPReenableRevokeHistoricalSessionsAndAllowFreshLogin(t *testing.T) {
+	for _, legacyLDAP := range []bool{false, true} {
+		for _, status := range []model.StatusCode{model.COMMON_STATUS_DISABLED, model.StatusCode(3)} {
+			t.Run(fmt.Sprintf("ldap-%t/status-%d", legacyLDAP, status), func(t *testing.T) {
+				db := issuanceDB(t)
+				us := issuanceService(t, db, time.Hour)
+				u := issuanceUser(t, db)
+				issuanceCreate(t, db, &model.UserToken{UserId: u.Id, Token: "historical-local-token", ExpiredAt: time.Now().Add(time.Hour).Unix()})
+				if err := db.Model(&model.User{}).Where("id=?", u.Id).UpdateColumn("status", status).Error; err != nil {
+					t.Fatal(err)
+				}
+				sessions, err := app.NewSessions(db, time.Hour, nil)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if _, err := sessions.Authenticate(context.Background(), "historical-local-token"); !errors.Is(err, auth.ErrDisabled) {
+					t.Fatal("historical fixture did not retain inactive account token", err)
+				}
+				input := model.User{IdModel: model.IdModel{Id: u.Id}, Status: model.COMMON_STATUS_ENABLE, Nickname: "reenabled"}
+				writer := us
+				if legacyLDAP {
+					writer = &UserService{} // Same compatibility path used by LDAP sync.
+				}
+				if err := writer.Update(&input); err != nil {
+					t.Fatal(err)
+				}
+				if _, err := sessions.Authenticate(context.Background(), "historical-local-token"); !errors.Is(err, auth.ErrUnauthenticated) {
+					t.Fatal("legacy/LDAP reenable revived historical token", err)
+				}
+				if issuanceCount(t, db, &model.UserToken{}) != 0 {
+					t.Fatal("legacy/LDAP reenable left old sessions")
+				}
+				fresh, err := us.Login(context.Background(), &u, &model.LoginLog{UserId: u.Id, Client: model.LoginLogClientWebAdmin, Type: model.LoginLogTypeAccount})
+				if err != nil || fresh == nil {
+					t.Fatal("reenabled user could not log in again", err)
+				}
+				if authenticated, err := sessions.Authenticate(context.Background(), fresh.Token); err != nil || authenticated.User.ID != u.Id {
+					t.Fatal("fresh legacy-issued session did not authenticate", err)
+				}
+				if err := writer.Update(&model.User{IdModel: model.IdModel{Id: u.Id}, Nickname: "enabled-metadata"}); err != nil {
+					t.Fatal(err)
+				}
+				if _, err := sessions.Authenticate(context.Background(), fresh.Token); err != nil {
+					t.Fatal("enabled metadata update revoked fresh legacy session", err)
+				}
+			})
+		}
 	}
 }

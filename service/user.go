@@ -77,7 +77,13 @@ func (us *UserService) InfoByUsernamePassword(username, password string) *model.
 		return &model.User{}
 	}
 	if newHash != "" {
-		DB.Model(u).Update("password", newHash)
+		// Replace only the hash that was verified. A reset that committed while
+		// rehashing must not be overwritten or return a stale signable user.
+		result := DB.Session(&gorm.Session{Logger: logger.Default.LogMode(logger.Silent)}).
+			Model(&model.User{}).Where("id = ? AND password = ?", u.Id, u.Password).Update("password", newHash)
+		if result.Error != nil || result.RowsAffected != 1 {
+			return &model.User{}
+		}
 		u.Password = newHash
 	}
 	return u
@@ -318,7 +324,8 @@ func (us *UserService) UpdateContext(ctx context.Context, u *model.User) error {
 				return err
 			}
 		}
-		if next.Status != model.COMMON_STATUS_ENABLE {
+		// LDAP/CLI reenable must also remove upgrade-era inactive sessions.
+		if current.Status != model.COMMON_STATUS_ENABLE || next.Status != model.COMMON_STATUS_ENABLE {
 			return userlifecycle.RevokeLocked(tx, current.Id)
 		}
 		return nil

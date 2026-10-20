@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/lejianwen/rustdesk-api/v2/internal/app"
 	"github.com/lejianwen/rustdesk-api/v2/internal/auth"
 	"github.com/lejianwen/rustdesk-api/v2/internal/database"
 	"github.com/lejianwen/rustdesk-api/v2/model"
@@ -265,15 +266,59 @@ func TestApprovedSelfActionsAndDisableReenable(t *testing.T) {
 	}
 }
 
+func TestHistoricalInactiveReenableRevokesOldSessionsAndAllowsFreshLogin(t *testing.T) {
+	for _, status := range []model.StatusCode{model.COMMON_STATUS_DISABLED, model.StatusCode(3)} {
+		t.Run(fmt.Sprint(status), func(t *testing.T) {
+			f := newFixture(t)
+			// Model an upgrade-era inactive account whose old session was never
+			// revoked, rather than relying on the new disable write to clean it.
+			must(t, f.db.Model(&model.User{}).Where("id=?", f.target.Id).UpdateColumn("status", status).Error)
+			sessions, err := app.NewSessions(f.db, time.Hour, nil)
+			must(t, err)
+			oldToken := fmt.Sprintf("target-%d", f.now.Add(time.Hour).Unix())
+			if _, err := sessions.Authenticate(context.Background(), oldToken); !errors.Is(err, auth.ErrDisabled) {
+				t.Fatal("historical fixture did not retain a disabled account's session", err)
+			}
+			must(t, f.s.Update(context.Background(), f.actor, UserInput{ID: f.target.Id, Status: model.COMMON_STATUS_ENABLE, Nickname: "enabled-again"}))
+			if row := user(t, f, f.target.Id); row.Status != model.COMMON_STATUS_ENABLE || row.Nickname != "enabled-again" {
+				t.Fatal("reenable did not commit account metadata")
+			}
+			if _, err := sessions.Authenticate(context.Background(), oldToken); !errors.Is(err, auth.ErrUnauthenticated) {
+				t.Fatal("reenable revived an upgrade-era old session", err)
+			}
+			if tokenCount(t, f, f.target.Id) != 0 {
+				t.Fatal("reenable retained historical active or expired sessions")
+			}
+			issuer, err := app.NewIssuer(f.db, time.Hour, nil)
+			must(t, err)
+			expected := f.target.Password
+			fresh, err := issuer.Issue(context.Background(), auth.IssueRequest{UserID: f.target.Id, ExpectedPassword: &expected, Client: model.LoginLogClientWebAdmin, Method: model.LoginLogTypeAccount})
+			must(t, err)
+			if authenticated, err := sessions.Authenticate(context.Background(), fresh.Session.Token); err != nil || authenticated.User.ID != f.target.Id || !authenticated.User.Enabled {
+				t.Fatal("reenabled account could not use a freshly issued session", err)
+			}
+			must(t, f.s.Update(context.Background(), f.actor, UserInput{ID: f.target.Id, Nickname: "enabled-metadata"}))
+			if _, err := sessions.Authenticate(context.Background(), fresh.Session.Token); err != nil || tokenCount(t, f, f.target.Id) != 1 {
+				t.Fatal("ordinary enabled account metadata update revoked a valid fresh session", err)
+			}
+		})
+	}
+}
+
 func TestDisableAndPasswordLateFailureRollBackAndRetry(t *testing.T) {
-	for _, action := range []string{"disable", "reset", "self-password"} {
+	for _, action := range []string{"disable", "reenable", "reset", "self-password"} {
 		t.Run(action, func(t *testing.T) {
 			f := newFixture(t)
+			if action == "reenable" {
+				must(t, f.db.Model(&model.User{}).Where("id=?", f.target.Id).UpdateColumn("status", model.COMMON_STATUS_DISABLED).Error)
+			}
 			must(t, f.db.Exec("CREATE TRIGGER fail_user_session BEFORE DELETE ON user_tokens BEGIN SELECT RAISE(ABORT, 'private session fault'); END").Error)
 			call := func() error {
 				switch action {
 				case "disable":
 					return f.s.Update(context.Background(), f.actor, UserInput{ID: f.target.Id, Status: model.COMMON_STATUS_DISABLED, Nickname: "new"})
+				case "reenable":
+					return f.s.Update(context.Background(), f.actor, UserInput{ID: f.target.Id, Status: model.COMMON_STATUS_ENABLE, Nickname: "new"})
 				case "reset":
 					return f.s.ResetPassword(context.Background(), f.actor, PasswordInput{ID: f.target.Id, Password: "new-password"})
 				default:
@@ -324,9 +369,12 @@ func (t failedCommitTx) Commit() error {
 }
 
 func TestAllUserWritesActualCommitFailureRollsBackAndRetry(t *testing.T) {
-	for _, action := range []string{"create", "disable", "delete", "reset", "self-password"} {
+	for _, action := range []string{"create", "disable", "reenable", "delete", "reset", "self-password"} {
 		t.Run(action, func(t *testing.T) {
 			f := newFixture(t)
+			if action == "reenable" {
+				must(t, f.db.Model(&model.User{}).Where("id=?", f.target.Id).UpdateColumn("status", model.COMMON_STATUS_DISABLED).Error)
+			}
 			pool, err := f.db.DB()
 			must(t, err)
 			reached := false
@@ -340,6 +388,8 @@ func TestAllUserWritesActualCommitFailureRollsBackAndRetry(t *testing.T) {
 					return f.s.Create(context.Background(), f.actor, UserInput{Username: "commit-user", Status: model.COMMON_STATUS_ENABLE, GroupID: 1})
 				case "disable":
 					return f.s.Update(context.Background(), f.actor, UserInput{ID: f.target.Id, Status: model.COMMON_STATUS_DISABLED, Nickname: "committed"})
+				case "reenable":
+					return f.s.Update(context.Background(), f.actor, UserInput{ID: f.target.Id, Status: model.COMMON_STATUS_ENABLE, Nickname: "committed"})
 				case "delete":
 					return f.s.Delete(context.Background(), f.actor, f.target.Id)
 				case "reset":
@@ -367,6 +417,11 @@ func TestAllUserWritesActualCommitFailureRollsBackAndRetry(t *testing.T) {
 				row := user(t, f, f.target.Id)
 				if row.Status != model.COMMON_STATUS_DISABLED || row.Nickname != "committed" || tokenCount(t, f, f.target.Id) != 0 {
 					t.Fatal("retry did not commit disable+revocation")
+				}
+			case "reenable":
+				row := user(t, f, f.target.Id)
+				if row.Status != model.COMMON_STATUS_ENABLE || row.Nickname != "committed" || tokenCount(t, f, f.target.Id) != 0 {
+					t.Fatal("retry did not commit reenable+revocation")
 				}
 			case "delete":
 				var n int64
