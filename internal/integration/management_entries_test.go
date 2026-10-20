@@ -423,8 +423,20 @@ func TestRealManagementEntriesForeignPeerOwnerUserDeleteBothOrders(t *testing.T)
 				if !updateFirst {
 					leading, following = deleteDB, updateDB
 				}
-				locked, attempted, release := realBookOwnerBarrier(t, leading, following, peerOwner.User.ID)
+				// User deletion now locks the administrator set before its target.
+				// The earliest common row is this administrator, so observe that
+				// actual wait rather than waiting for a later peer-owner lock.
+				locked, attempted, release := realBookOwnerBarrier(t, leading, following, admin.User.ID)
 				defer release()
+				var peerOwnerAttempt atomic.Bool
+				realBookMust(t, updateDB.Callback().Query().Before("gorm:query").Register("entry:peer-owner-before-peer", func(tx *gorm.DB) {
+					if realCollectionsAttemptsOwner(tx, peerOwner.User.ID) {
+						peerOwnerAttempt.Store(true)
+					}
+					if realBookIsLockedTable(tx, "peers") && !peerOwnerAttempt.Load() {
+						tx.AddError(errors.New("entry peer locked before its planned user owner"))
+					}
+				}))
 				ctx, cancel := context.WithTimeout(context.Background(), 12*time.Second)
 				defer cancel()
 				updater := realBookStore(t, updateDB)
@@ -439,16 +451,19 @@ func TestRealManagementEntriesForeignPeerOwnerUserDeleteBothOrders(t *testing.T)
 				} else {
 					go del()
 				}
-				realBookWait(t, ctx, locked, "leader did not lock the distinct peer owner")
+				realBookWait(t, ctx, locked, "leader did not lock the shared administrator")
 				if updateFirst {
 					go del()
 				} else {
 					go update()
 				}
-				realBookWait(t, ctx, attempted, "follower did not lock candidate peer owner")
+				realBookWait(t, ctx, attempted, "follower did not attempt the shared administrator lock")
 				realBookNativeWait(t, f, ctx, "users")
 				release()
 				updateErr, deleteErr := realBookResult(t, ctx, updated), realBookResult(t, ctx, deleted)
+				if !peerOwnerAttempt.Load() {
+					t.Fatal("entry update omitted the planned distinct peer-owner user lock")
+				}
 				realBookMust(t, deleteErr)
 				if updateFirst {
 					realBookMust(t, updateErr)
