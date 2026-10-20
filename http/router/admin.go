@@ -158,9 +158,9 @@ func AddressBookBind(rg *gin.RouterGroup, sessions *httpapi.Handler) {
 		arp := aR.Use(sessions.RequireAdmin())
 		arp.GET("/list", cont.List)
 		//arp.GET("/detail/:id", cont.Detail)
-		arp.POST("/create", cont.Create)
-		arp.POST("/update", cont.Update)
-		arp.POST("/delete", cont.Delete)
+		arp.POST("/create", sessions.EntryCreate(true))
+		arp.POST("/update", sessions.EntryUpdate(true))
+		arp.POST("/delete", sessions.EntryDelete(true))
 		arp.POST("/batchCreate", cont.BatchCreate)
 		arp.POST("/batchCreateFromPeers", cont.BatchCreateFromPeers)
 
@@ -285,9 +285,9 @@ func MyBind(rg *gin.RouterGroup, sessions *httpapi.Handler) {
 	{
 		cont := &my.AddressBook{}
 		rg.GET("/my/address_book/list", cont.List)
-		rg.POST("/my/address_book/create", cont.Create)
-		rg.POST("/my/address_book/update", cont.Update)
-		rg.POST("/my/address_book/delete", cont.Delete)
+		rg.POST("/my/address_book/create", sessions.EntryCreate(false))
+		rg.POST("/my/address_book/update", sessions.EntryUpdate(false))
+		rg.POST("/my/address_book/delete", sessions.EntryDelete(false))
 		rg.POST("/my/address_book/batchCreateFromPeers", cont.BatchCreateFromPeers)
 		rg.POST("/my/address_book/batchUpdateTags", cont.BatchUpdateTags)
 	}

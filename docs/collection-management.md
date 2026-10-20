@@ -54,11 +54,9 @@ and COMMIT failures also roll back without exposing SQL text.
 
 This legacy service signature does not add fresh administrator authorization
 to the old user-delete controller. Last-administrator concurrent deletion and
-legacy UserThird autocommit late writes are still outside this slice. Legacy
-entry/tag/sharing-rule write scopes and atomic entry/peer updates are separate
-implementation slices: the old entry controller still commits the entry before
-calling the guarded peer writer. The existing anonymous shared-name listing is
-unchanged.
+legacy UserThird autocommit late writes are still outside this slice. Entry,
+tag and sharing-rule writes use the instance stores described below. The
+existing anonymous shared-name listing is unchanged.
 
 ## Confirmed next write rules
 
@@ -78,8 +76,8 @@ administrator's entry update retains the peer primary-book/alias/hostname/user
 name side effect, in the same transaction. `my` create and administrator batch
 add no longer independently change the peer alias. Administrator entry delete
 clears primary-book/alias only when that actual primary book matches its book.
-Tag and sharing-rule writers implement these rules in LEG02-C. Entry writes
-and batches remain the following LEG02-D/E slices.
+Tag and sharing-rule writers implement these rules in LEG02-C, and individual
+entry writes in LEG02-D. Batches remain the following LEG02-E slice.
 
 ## LEG02-C tag and sharing-rule writes
 
@@ -106,10 +104,9 @@ and entry timestamps. NULL, JSON null, malformed or non-string-array historical
 storage fails closed and rolls back; it is not silently converted to an empty
 array. New definitions do not introduce another table or constraint.
 
-The old entry and batch routes are not covered by LEG02-C. This remains an
-implementation boundary until those writers join the same lock/transaction
-protocol. Real web administration UI and official-client acceptance are still
-pending.
+LEG02-C does not itself cover entry or batch routes. Individual entry routes
+join the protocol in LEG02-D below; batch routes still await LEG02-E. Real web
+administration UI and official-client acceptance are still pending.
 
 Automated HTTP tests include persistent revocation, disablement, demotion and
 expiration injected after authentication middleware has passed. Core tests
@@ -123,3 +120,34 @@ management changes. The earlier OIDC login and basic My address book manual
 checks remain limited to their original scope. Real legacy administration UI
 CRUD, reference rejection and client behavior after management changes remain
 unaccepted.
+
+## LEG02-D individual entry writes
+
+The six existing administrator/my create, update and delete routes use the same
+instance store and transaction admission checks. Ordinary edits preserve the
+stored owner, collection and byte-exact device identity; omitted, zero or
+unchanged selectors preserve their values. Only the selected entry row changes.
+Entry notes remain independent and are not overwritten by these legacy forms.
+Other editable fields retain the existing full-form replacement semantics,
+including explicit zero values. New entries store an empty tag array when tags
+are absent. Existing duplicate rows are not merged or cleaned up.
+
+Only an administrator's update can also set a registered peer's primary book,
+alias, hostname and username. The candidate peer owner is locked before peers
+and collections; row ID, device ID, UUID and ownership are rechecked. Missing
+peers leave the operation as an entry-only update; ambiguous or changed peers
+fail closed. Both writes commit together. The create routes and all my routes
+do not independently change peers.
+
+An administrator's delete clears only primary-book and alias, and only when a
+nonzero collection is that peer's actual primary book. Other primary books and
+peer settings are preserved. Normal ORM update timestamps still apply. Failed
+SQL, cancellation and actual COMMIT failures roll back entry and peer changes;
+an explicit retry is a new transaction.
+
+Automated checks cover post-middleware session revocation on all six routes,
+valid restored-session controls with resource readback, immutable selectors,
+peer side effects and rollback. Native MySQL/PostgreSQL checks also exercise
+both collection-delete orders, peer-owner deletion and tag-rename competition,
+identity/owner drift, and real final-write COMMIT failure followed by retry.
+These checks do not constitute real web UI or official-client acceptance.
