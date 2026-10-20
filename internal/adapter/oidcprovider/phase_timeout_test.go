@@ -4,9 +4,7 @@ import (
 	"context"
 	"errors"
 	"io"
-	"net"
 	"net/http"
-	"net/http/httptest"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -24,26 +22,83 @@ func streamUntilCancelled(w http.ResponseWriter, r *http.Request) {
 	<-r.Context().Done()
 }
 
-func TestHTTPClientBodyDeadlineHasTypedCauseBeforeSDK(t *testing.T) {
-	s := httptest.NewTLSServer(http.HandlerFunc(streamUntilCancelled))
-	defer s.Close()
-	client := s.Client()
-	client.Timeout = 60 * time.Millisecond
+// net/http deliberately preserves EOF even after Client.Timeout expires;
+// cancelTimerBody.Read does not wrap EOF as a typed timeout. Model that allowed
+// response-body outcome directly, rather than claiming the standard library
+// must always return net.Error. Production owns the request context deadline.
+type eofAtDeadlineBody struct {
+	ctx    context.Context
+	prefix *strings.Reader
+}
+
+func (b *eofAtDeadlineBody) Read(p []byte) (int, error) {
+	if b.prefix.Len() != 0 {
+		return b.prefix.Read(p)
+	}
+	<-b.ctx.Done()
+	return 0, io.EOF
+}
+func (*eofAtDeadlineBody) Close() error { return nil }
+
+type eofAtDeadlineTransport struct {
+	base           http.RoundTripper
+	path           string
+	reached        atomic.Bool
+	requestContext context.Context
+}
+
+func (tr *eofAtDeadlineTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	if req.URL.Path != tr.path {
+		return tr.base.RoundTrip(req)
+	}
+	tr.reached.Store(true)
+	tr.requestContext = req.Context()
+	return &http.Response{StatusCode: http.StatusOK, Header: http.Header{"Content-Type": []string{"application/json"}}, ContentLength: -1, Request: req,
+		Body: &eofAtDeadlineBody{ctx: req.Context(), prefix: strings.NewReader(`{"private-provider-eof":`)}}, nil
+}
+func TestBodyEOFAtClientDeadlineHasNoTypedCauseBeforeSDK(t *testing.T) {
+	tr := &eofAtDeadlineTransport{path: "/"}
+	client := &http.Client{Timeout: 60 * time.Millisecond, Transport: tr}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, s.URL, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://provider.example.test/", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	r, err := client.Do(req)
+	response, err := client.Do(req)
 	if err != nil {
-		t.Fatal("fixture did not return successful headers")
+		t.Fatal("fixture did not return successful headers", err)
 	}
-	defer r.Body.Close()
-	_, err = io.ReadAll(r.Body)
-	var typed net.Error
-	if !errors.As(err, &typed) || !typed.Timeout() || !errors.Is(err, context.DeadlineExceeded) || ctx.Err() != nil {
-		t.Fatal("body timeout did not retain typed deadline while caller remained active")
+	defer response.Body.Close()
+	data, err := io.ReadAll(response.Body)
+	if err != nil || string(data) != `{"private-provider-eof":` || !tr.reached.Load() || !errors.Is(tr.requestContext.Err(), context.DeadlineExceeded) || ctx.Err() != nil {
+		t.Fatalf("EOF control did not establish an untyped body outcome after request deadline: body-read-success=%t request-expired=%t caller-active=%t", err == nil, errors.Is(tr.requestContext.Err(), context.DeadlineExceeded), ctx.Err() == nil)
+	}
+}
+func TestPhaseDeadlineSurvivesResponseBodyEOFAtEveryNetworkPhase(t *testing.T) {
+	paths := map[string]string{"discovery": "/.well-known/openid-configuration", "token": "/token", "jwks": "/jwks", "userinfo": "/userinfo"}
+	for _, phase := range []string{"discovery", "token", "jwks", "userinfo"} {
+		t.Run(phase, func(t *testing.T) {
+			f := newTestIDP(t, idpOptions{})
+			transport := &eofAtDeadlineTransport{base: f.client.Transport, path: paths[phase]}
+			f.client.Transport = transport
+			f.client.Timeout = 60 * time.Millisecond
+			provider := f.provider(t)
+			if phase != "discovery" {
+				if err := provider.Prepare(context.Background()); err != nil {
+					t.Fatal("prepare", err)
+				}
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+			defer cancel()
+			identity, err := provider.Exchange(ctx, "authorization-code", testNonce, testVerifier)
+			if !transport.reached.Load() || transport.requestContext == nil || !errors.Is(transport.requestContext.Err(), context.DeadlineExceeded) {
+				t.Fatal("EOF response did not follow the actual request deadline")
+			}
+			if identity != (Identity{}) || !errors.Is(err, ErrUnavailable) || !errors.Is(err, context.DeadlineExceeded) || ctx.Err() != nil || strings.Contains(err.Error(), "private-provider-eof") {
+				t.Fatalf("phase lost EOF deadline or leaked data: deadline=%t unavailable=%t caller-active=%t identity-empty=%t", errors.Is(err, context.DeadlineExceeded), errors.Is(err, ErrUnavailable), ctx.Err() == nil, identity == (Identity{}))
+			}
+		})
 	}
 }
 
