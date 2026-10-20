@@ -1,5 +1,7 @@
 # 当前客户端 HTTP 契约与回归矩阵
 
+PRE01-B 新增管理员 CLI 首批五字段和已批准设备备注迁移279，组设备列表 GET /api/peers 沿既有权限投影note；缺失/空值、严格拒绝、事务与真实验收范围见[CLI契约](device-cli.md)。本批未部署，未运行真实--assign。
+
 COMP12-B 用生产路由补齐地址簿会话边界：settings、personal、tag add/rename/color/delete、peer delete 七个端点，分别验证匿名、坏token、实际本地logout后的旧token、禁用用户、数据库撤销和数据库过期会话，共42个命名子测试。全部期望401及固定客户端错误对象；准备失效状态后读取users/user_tokens/tags/collections/rules/peers/address_books七张表的原始列值、时间和行ID，请求后精确比较不变。
 
 每个拒绝用例还用同body、同具名范围和有效owner会话执行正向控制，核对响应、实际标签/peer效果及异owner/异collection同名哨兵，避免以坏输入冒充鉴权通过。证据为 `http/addressbook_session_boundaries_test.go:TestClientAddressBookSessionBoundaries`，没有生产鉴权逻辑、会话政策、IdP行为、新路由或模型变更。这里是HTTP/SQLite和服务端本地退出，不代表实际Flutter/IdP退出联动已验；真实客户端及实机数据细项仍单列。
@@ -47,7 +49,8 @@ COMP08 切片已通过 Go1.23.10/CGO1 的全仓 race/vet/build、生产 router+S
 | 07 | heartbeat | 匿名设备上报形状；相同版本 `{}`；修改、删除、默认切换后的 config_options；UUID 边界；失败不当成功 | COMP05 已实现，核心与生产 HTTP+SQLite 定向 race 通过；未运行真实 Rust 客户端 |
 | 08 | sysinfo | 必须原文 `SYSINFO_UPDATED`；新增/更新回读；上报不能改管理员绑定与共享授权 | COMP10 基础快照/空值与事务已补 HTTP/实库回归；预设业务和真实客户端验收仍待完成 |
 | 09 | sysinfo_ver | 原文版本文本；直接 HTTP smoke 可测，但不可当作固定客户端正常可达闭环 | 条件不可达 |
-| 10–12 | switch-grant / devices/deploy / devices/cli | 保留明确不支持状态；后续各自验证签名、操作 token、result 枚举或空文本 | 缺失，后续阶段 |
+| 10–11 | switch-grant / devices/deploy | 后续各自验证签名、操作token与result枚举 | 缺失，后续阶段 |
+| 12 | devices/cli | 活跃管理员Bearer、已登记id/uuid；五项支持字段事务写入/空文本提交ACK | PRE01-B部分实现，含已批准设备note279；book/strategy整次拒绝；[支持与验收边界](device-cli.md) |
 | 13–14 | settings/personal | 空 body 可用；settings 对象、personal guid；不存在接口时 404 降级 | COMP12-A 已补初始化具名回归；personal关闭改404降级，COMP12-B 已补会话矩阵，真实客户端另列 |
 | 15 | shared profiles | total/data、current/pageSize；授权规则取最大且去重；拒绝伪造或越权 guid | 生产路由+SQLite 已覆盖 1021 个 profile 和权限过滤 |
 | 16–17 | legacy 整本地址簿 GET/POST | data 是 JSON 字符串，tag_colors 再编码；个人簿整本更新与 tag 同事务；保留扩展字段和共享/他人数据 | 生产路由+SQLite 已覆盖 1007 peers/1003 tags 读取及写失败回滚 |
@@ -55,12 +58,12 @@ COMP08 切片已通过 Go1.23.10/CGO1 的全仓 race/vet/build、生产 router+S
 | 20–21 | peer add/update | 单对象新增；字段缺失不改、空串清除；note/主机/密码/hash；forceAlwaysRelay 字符串与 same_server 布尔 | COMP03 生产路由+SQLite 已覆盖部分更新、note 清空/回读及跨用户主机元数据保护 |
 | 22 | peer delete | DELETE JSON 数组 body；资源范围和持久化删除 | COMP08 已补生产 HTTP/SQLite 的范围、权限、重复/缺项、批量失败回滚及实库验证 |
 | 23–26 | tag add/rename/update/delete | 颜色整数；重命名同步 peer 引用；DELETE 数组 body；越权拒绝 | COMP08 已测四个写入口的共享规则/失败；COMP07 已测改名删除引用事务、精确名称与实库并发 |
-| 27–29 | accessible groups/users/peers | current/pageSize、真实 total、授权后分页；Peer.info.device_name 映射；授权依赖故障不得扩权 | COMP02 生产路由+SQLite 已覆盖千条级分页、角色/组范围和依赖失败 |
+| 27–29 | accessible groups/users/peers | current/pageSize、真实 total、授权后分页；Peer.info.device_name 映射；授权依赖故障不得扩权 | COMP02 已覆盖千条分页/角色组范围/依赖失败；PRE01-B在原范围投影设备note，并验证清除和隐藏范围保护 |
 | 30–31 | conn/file audit | 事务提交/已提交重复后才 2xx 空 body；完整 u64 session_id；receipt 并发去重与冲突；连接 new/auth/close | COMP04 核心+真实 controller HTTP/SQLite 已覆盖；完整生产 router 另验证装配、u64、空 ACK、重复和依赖失败 |
 | 32–35 | alarm / active conn / audit note / record | 空ACK、GUID JSON string、授权备注、字节上传分别验证；34只判HTTP200且需非空GUID；35私有ENABLE=false无writer | 缺路由，35为静态不可达保留实现 |
 | 36 | legacy Sciter POST /api/ab/get | 请求{}；data为JSON字符串、updated_at可选；不能以Flutter GET /api/ab代替 | COMP09 读取切片已补生产路由与 HTTP/SQLite 回归；真实 Sciter 验收待完成 |
 
-固定 b59f7a5 盘点为28项注册、8项缺路由；COMP09 读取切片后为29项注册、7项缺路由。36个固定method/path中，34项有源码调用链，09/35为条件不可达保留实现。HEAD `/api/login-options`另列传输探测，不属于36项业务功能。Sciter入口不能等价成标准Flutter GUI必然触发。现有 `http/http_test.go` 的路由 inventory 证明注册形状；`TestProductionOIDCRoutesPublicPKCEAndLocalSession`、`TestProductionOIDCAdminEnvelopeAndRouteAudience` 等证明部分真实登录/当前账号/退出边界。本轮地址簿、分页、策略与审计已有明确测试证据，但不能由路由计数推导全部契约或外部运行验收通过。
+固定 b59f7a5 盘点为28项注册、8项缺路由；COMP09 读取切片后为29项注册、7项缺路由；PRE01-B新增CLI后当前30项注册、6项缺路由，CLI仍非完整业务支持。36个固定method/path中，34项有源码调用链，09/35为条件不可达保留实现。HEAD `/api/login-options`另列传输探测，不属于36项业务功能。Sciter入口不能等价成标准Flutter GUI必然触发。现有 `http/http_test.go` 的路由 inventory 证明注册形状；`TestProductionOIDCRoutesPublicPKCEAndLocalSession`、`TestProductionOIDCAdminEnvelopeAndRouteAudience` 等证明部分真实登录/当前账号/退出边界。本轮地址簿、分页、策略与审计已有明确测试证据，但不能由路由计数推导全部契约或外部运行验收通过。
 
 ## COMP02/03 地址簿、分页与字段
 

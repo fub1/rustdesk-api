@@ -90,6 +90,9 @@ func currentVersion(db *gorm.DB) (uint, bool, error) {
 }
 
 func migrateSchema(db *gorm.DB) error {
+	if err := preparePeerNote(db); err != nil {
+		return fmt.Errorf("migrate schema: %w", err)
+	}
 	if err := prepareAddressBookNote(db); err != nil {
 		return fmt.Errorf("migrate schema: %w", err)
 	}
@@ -129,6 +132,27 @@ func migrateSchema(db *gorm.DB) error {
 // Also repair NULLs after a partially completed MySQL DDL migration retry.
 type nullableAddressBookNote struct {
 	Note *string `gorm:"type:text"`
+}
+
+type nullablePeerNote struct {
+	Note *string `gorm:"type:text"`
+}
+
+func (nullablePeerNote) TableName() string { return "peers" }
+
+func preparePeerNote(db *gorm.DB) error {
+	if !db.Migrator().HasTable(&model.Peer{}) {
+		return nil
+	}
+	if !db.Migrator().HasColumn(&model.Peer{}, "Note") {
+		if err := db.Migrator().AddColumn(&nullablePeerNote{}, "Note"); err != nil {
+			return fmt.Errorf("add peer note: %w", err)
+		}
+	}
+	if err := db.Model(&nullablePeerNote{}).Where("note IS NULL").UpdateColumn("note", "").Error; err != nil {
+		return fmt.Errorf("backfill peer note: %w", err)
+	}
+	return nil
 }
 
 func (nullableAddressBookNote) TableName() string { return "address_books" }

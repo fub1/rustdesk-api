@@ -17,6 +17,7 @@ import (
 	"github.com/lejianwen/rustdesk-api/v2/global"
 	"github.com/lejianwen/rustdesk-api/v2/http"
 	"github.com/lejianwen/rustdesk-api/v2/internal/app"
+	"github.com/lejianwen/rustdesk-api/v2/internal/clientassign"
 	"github.com/lejianwen/rustdesk-api/v2/internal/database"
 	"github.com/lejianwen/rustdesk-api/v2/internal/httpapi"
 	"github.com/lejianwen/rustdesk-api/v2/internal/lifecycle"
@@ -33,7 +34,7 @@ import (
 	"gorm.io/gorm"
 )
 
-const DatabaseVersion = 278
+const DatabaseVersion = 279
 
 // @title 管理系统API
 // @version 1.0
@@ -78,7 +79,12 @@ var rootCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
+		assign, err := clientassign.New(global.DB, clientassign.Options{})
+		if err != nil {
+			return err
+		}
 		authHTTP, err := httpapi.New(sessions, httpapi.Options{
+			Assign:    assign,
 			OIDC:      oidcLogin,
 			Translate: http.LegacyTranslator(), Timeout: global.Config.App.AuthTimeout,
 			Observe: func(event httpapi.FailureEvent) {

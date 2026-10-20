@@ -91,12 +91,12 @@ func (s *Store) GroupPeers(ctx context.Context, actor Actor, page Page, enabledO
 		if err := query.Count(&total).Error; err != nil {
 			return err
 		}
-		var stored []struct{ ID, Username, Hostname, OS, Owner, DeviceGroup string }
-		if err := query.Select("p.id, p.username, p.hostname, p.os, owner.username AS owner, COALESCE(dg.name, '') AS device_group").Order("p.row_id ASC").Offset(page.offset()).Limit(page.Size).Scan(&stored).Error; err != nil {
+		var stored []struct{ ID, Username, Hostname, OS, Owner, DeviceGroup, Note string }
+		if err := query.Select("p.id, p.username, p.hostname, p.os, p.note, owner.username AS owner, COALESCE(dg.name, '') AS device_group").Order("p.row_id ASC").Offset(page.offset()).Limit(page.Size).Scan(&stored).Error; err != nil {
 			return err
 		}
 		for _, v := range stored {
-			rows = append(rows, GroupPeer{ID: v.ID, Info: HostInfo{Username: v.Username, OS: v.OS, DeviceName: v.Hostname}, UserName: v.Owner, DeviceGroupName: v.DeviceGroup})
+			rows = append(rows, GroupPeer{ID: v.ID, Info: HostInfo{Username: v.Username, OS: v.OS, DeviceName: v.Hostname}, UserName: v.Owner, DeviceGroupName: v.DeviceGroup, Note: v.Note})
 		}
 		return nil
 	})

@@ -1,5 +1,7 @@
 # RustDesk 1.5.0 HTTP API 契约基线
 
+PRE01-B新增POST /api/devices/cli部分支持：现有管理员Bearer对已登记目标执行user/group/device name/OS username/note；book/strategy整次拒绝。当前注册30项、缺失6项，历史28/8及29/7保留原时点；[CLI精确支持范围](device-cli.md)。
+
 PRE01-A 更新：按已确认管理员CLI准入，匿名sysinfo仅基础资料；非空preset-*整请求403且DB零写，null/非字符串400，空串无操作。移除owner1匿名入簿及历史日志补owner，新设备未分配，已有管理字段保护。A未新增CLI/模型，真实客户端新增验收未完成；[决策与限制](session-and-preset-decisions.md)。
 
 COMP12-B 后续证据：settings/personal、标签四写入口与peer删除共七端点，已增加42个生产HTTP/SQLite无效会话组合和同范围正控制；本地logout旧token、禁用、撤销、过期等均验证401且七表原始数据不变。这不是实际Flutter/IdP退出验收，也未新增会话政策。

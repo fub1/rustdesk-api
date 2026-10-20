@@ -56,7 +56,7 @@ PRE01-A 已移除旧 `owner=1` 匿名入簿及别名副写；所有非空 `prese
 
 | 内容 | sysinfo | CLI |
 | --- | --- | --- |
-| 授权 | 无 Bearer | `--assign --token` 发送 Bearer；不代表当前 API 已实现该路由 |
+| 授权 | 无 Bearer | `--assign --token` 发送 Bearer；PRE01-B仅实现[五项字段](device-cli.md) |
 | 目标账户 | `preset-user-name`，不是 `preset-username` | `user_name` |
 | 设备名称/OS 用户名 | 预设直接折叠为 `hostname` / `username` | `device_name` / `device_username` |
 | 簿内字段 | name/tag/alias/password/note 以独立非空预设键发送 | 下划线字段；仅提供 address_book_name 时携带簿内附属字段 |
@@ -64,10 +64,10 @@ PRE01-A 已移除旧 `owner=1` 匿名入簿及别名副写；所有非空 `prese
 
 来源：固定客户端 `src/hbbs_http/sync.rs:126–211`、`src/core_main.rs:542–641`，以及固定 hbb_common 的配置键定义。
 
-CLI 实现按小步推进；地址簿的名称/owner匹配、跨簿保留、密码/标签语义和命名策略仍单列。独立设备备注模型已逐节获用户批准：沿用设备row_id，仅新增peers.note非空文本、空串默认，管理员CLI缺失保留/空清除；地址簿备注独立，不增历史/审计表。该迁移和CLI实现不属于A切片。命名策略与专用操作凭据模型尚未批准或创建。
+CLI 实现按小步推进；地址簿的名称/owner匹配、跨簿保留、密码/标签语义和命名策略仍单列。独立设备备注模型已逐节获用户批准：沿用设备row_id，仅新增peers.note非空文本、空串默认，管理员CLI缺失保留/空清除；地址簿备注独立，不增历史/审计表。该迁移和CLI实现由PRE01-B切片交付，版本279，仅新增这一列；GET /api/peers沿原范围投影设备备注。命名策略与专用操作凭据模型尚未批准或创建。
 
 stock已把设备预设名称/OS用户名折叠进hostname/username，API无法区分来源；基础报告仍可改这些资料，不能承诺CLI写入它们后永久优先。登录早于首次设备报告时，不再依匿名报告补归属，需后续认证签发或管理员CLI明确关联。
 
 ## 验收边界
 
-本批未部署，未改 IdP 登记或真实用户会话。普通密码/OIDC 的本批回归、退出/禁用/过期实际交互，以及将来预设 CLI 的真实执行仍需单列验收。先前普通 OIDC 和基本 My address book 手工验收继续有效。
+本批未部署，未改 IdP 登记或真实用户会话。普通密码/OIDC 的本批回归、退出/禁用/过期实际交互，以及本批预设 CLI 的真实执行仍需单列验收。先前普通 OIDC 和基本 My address book 手工验收继续有效。

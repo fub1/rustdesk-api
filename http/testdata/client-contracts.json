@@ -744,13 +744,26 @@
       "id": "12",
       "method": "POST",
       "path": "/api/devices/cli",
-      "auth": "operation_bearer",
+      "auth": "active_local_administrator_bearer",
       "request_shape": "id_uuid_and_at_least_one_attribute",
       "response_shape": "empty_text_success",
-      "route_status": "deferred_missing",
-      "coverage": "unsupported",
-      "existing_partial_tests": [],
-      "fixture_status": "planned_not_executed",
+      "route_status": "route_present",
+      "coverage": "covered_partial",
+      "existing_partial_tests": [
+        "http/device_cli_test.go:TestClientDeviceCLIInitialRoute",
+        "http/device_cli_test.go:TestClientDeviceCLISupportedFieldsAndClearing",
+        "http/device_cli_test.go:TestClientDeviceCLIRejectsWholeUnsupportedOrMalformedRequest",
+        "http/device_cli_test.go:TestClientDeviceCLISessionAndAdministratorBoundary",
+        "internal/clientassign/store_test.go:TestAssignmentRechecksAdministratorAndSession",
+        "internal/clientassign/store_test.go:TestAssignmentCommitFailureRollsBack",
+        "internal/database/peer_note_migrate_test.go:TestPeerNoteMigrationFreshAndUpgrade279",
+        "internal/database/peer_note_migrate_test.go:TestPeerNoteVersionFailureRollsBackAndRetries",
+        "internal/integration/client_assignment_test.go:TestClientAssignmentRealCommitRollbackAndRetry",
+        "internal/integration/client_assignment_test.go:TestClientAssignmentExactTargetsAndStaleAdmission",
+        "internal/integration/client_assignment_test.go:TestClientAssignmentConcurrentPoolsAndAnonymousReports",
+        "internal/integration/client_assignment_test.go:TestClientAssignmentNote279RealMigrationRetry"
+      ],
+      "fixture_status": "production_http_and_real_engine_partial_assignment_not_real_cli",
       "client_variants": [
         {
           "id": "devices_cli",
@@ -781,7 +794,22 @@
       },
       "contract_document": "docs/client-api-1.5.0.md#contract-12",
       "route_registered_at_inventory_revision": false,
-      "field_freeze_status": "source_summary_not_complete_JSON_Schema"
+      "field_freeze_status": "source_summary_not_complete_JSON_Schema",
+      "verification_level": "production_router_http_sqlite_and_real_engine_store",
+      "implementation_update": {
+        "task": "PRE01-B",
+        "supported_fields": [
+          "user_name",
+          "device_group_name",
+          "device_name",
+          "device_username",
+          "note"
+        ],
+        "semantics": "existing exact id/uuid target; current administrator/session/expiry rechecked in transaction, exact unique names, omitted fields preserve, empty display/note clears; committed success is empty200",
+        "unsupported": "all book/strategy and unknown fields rejected as whole request, including empty/null; no partial success",
+        "schema": "approved peers.note nonnull text empty default, database279; no new table",
+        "real_client": "official --assign not run; no deployment"
+      }
     },
     {
       "id": "13",
@@ -1890,7 +1918,8 @@
       "coverage": "covered_partial",
       "existing_partial_tests": [
         "http/addressbook_compat_test.go:TestClientCompatGroupListsPaginateAfterAuthorization",
-        "http/addressbook_compat_test.go:TestClientCompatAuthorizationDependencyFailureDoesNotExpandScope"
+        "http/addressbook_compat_test.go:TestClientCompatAuthorizationDependencyFailureDoesNotExpandScope",
+        "http/device_cli_test.go:TestClientDeviceCLINoteProjectionRespectsGroupScope"
       ],
       "fixture_status": "local_targeted_race_passed_no_real_client_production_db_or_current_ci",
       "verification_level": "production_router_http_sqlite",
@@ -1928,7 +1957,12 @@
       },
       "contract_document": "docs/client-api-1.5.0.md#contract-29",
       "route_registered_at_inventory_revision": true,
-      "field_freeze_status": "source_summary_not_complete_JSON_Schema"
+      "field_freeze_status": "source_summary_not_complete_JSON_Schema",
+      "device_note_update": {
+        "task": "PRE01-B",
+        "semantics": "project peers.note through existing visible group peer query; independent from addressbook note and user remark",
+        "real_client": "not run"
+      }
     },
     {
       "id": "30",
@@ -2793,6 +2827,26 @@
       "ci": "exact commit Actions is authoritative",
       "real_client": "not run; no deployment or remote logout actions",
       "schema": "unchanged"
+    },
+    {
+      "task": "PRE01-B",
+      "source_inventory_unchanged": true,
+      "current_registration": {
+        "registered": 30,
+        "missing": 6,
+        "missing_routes": [
+          "POST /api/switch-grant",
+          "POST /api/devices/deploy",
+          "POST /api/audit/alarm",
+          "GET /api/audit/conn/active",
+          "PUT /api/audit",
+          "POST /api/record"
+        ]
+      },
+      "business_scope": "partial administrator assignment only; note279 plus existing device-note projection; book and named strategy not implemented",
+      "ci": "exact commit Actions authoritative",
+      "real_client": "not run; not deployed",
+      "schema": "only approved peers.note, version279"
     }
   ]
 }

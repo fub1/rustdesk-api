@@ -71,6 +71,7 @@ func ApiInit(g *gin.Engine, sessions *httpapi.Handler) {
 	}
 
 	frg.Use(sessions.ClientAuth())
+	frg.POST("/devices/cli", sessions.ClientDeviceCLI)
 	{
 		frg.GET("/user/info", sessions.ClientCurrent)
 		frg.POST("/currentUser", sessions.ClientCurrent)

@@ -162,6 +162,7 @@ POST /api/admin/user_token/delete
 POST /api/audit/conn
 POST /api/audit/file
 POST /api/currentUser
+POST /api/devices/cli
 POST /api/heartbeat
 POST /api/login
 POST /api/logout
