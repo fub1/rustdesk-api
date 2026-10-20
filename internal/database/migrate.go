@@ -90,6 +90,9 @@ func currentVersion(db *gorm.DB) (uint, bool, error) {
 }
 
 func migrateSchema(db *gorm.DB) error {
+	if err := migrateStrategyDefinitions(db); err != nil {
+		return err
+	}
 	if err := preparePeerNote(db); err != nil {
 		return fmt.Errorf("migrate schema: %w", err)
 	}

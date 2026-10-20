@@ -54,3 +54,9 @@ fix. This does not prove all cross-provider or legacy operations deadlock-free.
 The connection-loss injection happens before COMMIT, not after a confirmed
 server commit whose response was lost; ambiguous outcomes remain a separate
 boundary.
+
+## Named definitions (PRE02-C / version280)
+
+Only the approved id/name/config_options table is added; there is no peer relation. Names bind as binary values (MySQL VARBINARY255, PostgreSQL BYTEA, SQLite BLOB), preserving UTF-8 byte identity across case, accents, trailing spaces and NUL. The dedicated migration stays outside AutoMigrate to prevent later collation/type regression. Existing invalid shapes fail migration without publishing280 rather than being silently accepted. MySQL requires InnoDB and an unsigned single-column auto-increment primary key.
+
+The real-engine tests cover fresh/upgrade280, failed version persistence and retry, a later281 test target retaining the binary namespace, non-NULL/unique constraints, stale administrator/session rejection, concurrent same-name creation, rename conflict rollback, and INSERT/UPDATE/DELETE actual COMMIT failure with retry. PostgreSQL uses deferred constraint-trigger exceptions; MySQL kills the transaction connection after its final successful DML. These failures occur before a confirmed server COMMIT; lost replies after successful COMMIT remain ambiguous. Physical DDL may remain after a MySQL upgrade failure; the version must not advance until retry succeeds. No production backup/restore or real client acceptance is implied.

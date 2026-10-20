@@ -14,6 +14,7 @@ import (
 	"github.com/lejianwen/rustdesk-api/v2/internal/auth"
 	"github.com/lejianwen/rustdesk-api/v2/internal/clientassign"
 	"github.com/lejianwen/rustdesk-api/v2/internal/oidclogin"
+	"github.com/lejianwen/rustdesk-api/v2/internal/strategydefinitions"
 	"github.com/lejianwen/rustdesk-api/v2/model"
 	"github.com/lejianwen/rustdesk-api/v2/model/custom_types"
 )
@@ -25,11 +26,12 @@ type Translate func(language, message string) string
 // FailureEvent deliberately carries no credential, request data or cause text.
 type FailureEvent struct{ Operation, Code, Route string }
 type Options struct {
-	Translate Translate
-	Timeout   time.Duration
-	Observe   func(FailureEvent)
-	OIDC      *oidclogin.Service
-	Assign    *clientassign.Store
+	Translate           Translate
+	Timeout             time.Duration
+	Observe             func(FailureEvent)
+	OIDC                *oidclogin.Service
+	Assign              *clientassign.Store
+	StrategyDefinitions *strategydefinitions.Store
 }
 
 const DefaultTimeout = 5 * time.Second
@@ -38,6 +40,7 @@ type Handler struct {
 	sessions                *auth.Service
 	oidc                    *oidclogin.Service
 	assign                  *clientassign.Store
+	strategyDefinitions     *strategydefinitions.Store
 	translate               Translate
 	userRoutes, adminRoutes []string
 	timeout                 time.Duration
@@ -54,7 +57,7 @@ func New(sessions *auth.Service, options Options) (*Handler, error) {
 	if options.Timeout == 0 {
 		options.Timeout = DefaultTimeout
 	}
-	return &Handler{sessions: sessions, oidc: options.OIDC, assign: options.Assign, translate: options.Translate, timeout: options.Timeout, observe: options.Observe, userRoutes: append([]string(nil), model.UserRouteNames...), adminRoutes: append([]string(nil), model.AdminRouteNames...)}, nil
+	return &Handler{sessions: sessions, oidc: options.OIDC, assign: options.Assign, strategyDefinitions: options.StrategyDefinitions, translate: options.Translate, timeout: options.Timeout, observe: options.Observe, userRoutes: append([]string(nil), model.UserRouteNames...), adminRoutes: append([]string(nil), model.AdminRouteNames...)}, nil
 }
 
 func Current(c *gin.Context) (auth.Principal, bool) {

@@ -31,6 +31,9 @@ func Init(g *gin.Engine, sessions *httpapi.Handler) {
 
 	adg.Use(sessions.AdminAuth())
 	adg.POST("/logout", sessions.AdminLogout)
+	// Definition config may contain sensitive values. These explicit instance
+	// handlers must be registered before the legacy request-body operation log.
+	StrategyDefinitionsBind(adg, sessions)
 	adg.Use(middleware.OperationLog())
 	//FileBind(adg)
 	UserBind(adg, sessions)
@@ -60,6 +63,15 @@ func Init(g *gin.Engine, sessions *httpapi.Handler) {
 	OperationLogBind(adg, sessions)
 	//访问静态文件
 	//g.StaticFS("/upload", http.Dir(global.Config.Gin.ResourcesPath+"/upload"))
+}
+
+func StrategyDefinitionsBind(rg *gin.RouterGroup, sessions *httpapi.Handler) {
+	definitions := rg.Group("/strategy-definitions").Use(sessions.RequireAdmin())
+	definitions.GET("", sessions.StrategyDefinitionsList)
+	definitions.POST("", sessions.StrategyDefinitionsCreate)
+	definitions.GET("/:id", sessions.StrategyDefinitionsGet)
+	definitions.PUT("/:id", sessions.StrategyDefinitionsUpdate)
+	definitions.DELETE("/:id", sessions.StrategyDefinitionsDelete)
 }
 
 func RustdeskCmdBind(adg *gin.RouterGroup, sessions *httpapi.Handler) {

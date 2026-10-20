@@ -21,6 +21,7 @@ import (
 	"github.com/lejianwen/rustdesk-api/v2/internal/database"
 	"github.com/lejianwen/rustdesk-api/v2/internal/httpapi"
 	"github.com/lejianwen/rustdesk-api/v2/internal/lifecycle"
+	"github.com/lejianwen/rustdesk-api/v2/internal/strategydefinitions"
 	"github.com/lejianwen/rustdesk-api/v2/lib/cache"
 	"github.com/lejianwen/rustdesk-api/v2/lib/jwt"
 	"github.com/lejianwen/rustdesk-api/v2/lib/lock"
@@ -34,7 +35,7 @@ import (
 	"gorm.io/gorm"
 )
 
-const DatabaseVersion = 279
+const DatabaseVersion = 280
 
 // @title 管理系统API
 // @version 1.0
@@ -83,10 +84,15 @@ var rootCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
+		definitions, err := strategydefinitions.New(global.DB, strategydefinitions.Options{})
+		if err != nil {
+			return err
+		}
 		authHTTP, err := httpapi.New(sessions, httpapi.Options{
-			Assign:    assign,
-			OIDC:      oidcLogin,
-			Translate: http.LegacyTranslator(), Timeout: global.Config.App.AuthTimeout,
+			StrategyDefinitions: definitions,
+			Assign:              assign,
+			OIDC:                oidcLogin,
+			Translate:           http.LegacyTranslator(), Timeout: global.Config.App.AuthTimeout,
 			Observe: func(event httpapi.FailureEvent) {
 				authLogger.WithFields(map[string]interface{}{"component": "auth", "operation": event.Operation, "result": event.Code, "route": event.Route}).Debug("Authentication request failed")
 			},

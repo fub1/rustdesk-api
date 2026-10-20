@@ -2868,6 +2868,15 @@
       "ci": "exact commit Actions authoritative",
       "real_client": "official --assign and new book/password/tag acceptance not run; not deployed",
       "remaining": "named strategy implementation and approved device-association model section; legacy controller authorization race and main-book deletion policy remain separate"
+    },
+    {
+      "task": "PRE02-C",
+      "source_inventory_unchanged": true,
+      "business_scope": "administrator-only named definition CRUD; new instance Store and three-column approved table; no client endpoint or device relation added",
+      "schema": "version280 strategy_definitions(id,name,config_options) only; byte-exact name storage on all three engines",
+      "ci": "exact commit Actions authoritative",
+      "real_client": "no deployment or new official client acceptance",
+      "remaining": "device relation model approved for following PRE02-D; CLI named assignment and heartbeat merge not yet enabled in this slice; strategy_name still whole-request rejected"
     }
   ]
 }

@@ -1,5 +1,6 @@
 DELETE /api/ab/peer/:guid
 DELETE /api/ab/tag/:guid
+DELETE /api/admin/strategy-definitions/:id
 GET /
 GET /_admin/*filepath
 GET /admin/swagger/*any
@@ -43,6 +44,8 @@ GET /api/admin/peer_strategy/detail/:id
 GET /api/admin/peer_strategy/list
 GET /api/admin/rustdesk/cmdList
 GET /api/admin/share_record/list
+GET /api/admin/strategy-definitions
+GET /api/admin/strategy-definitions/:id
 GET /api/admin/tag/detail/:id
 GET /api/admin/tag/list
 GET /api/admin/user/current
@@ -146,6 +149,7 @@ POST /api/admin/rustdesk/cmdDelete
 POST /api/admin/rustdesk/sendCmd
 POST /api/admin/share_record/batchDelete
 POST /api/admin/share_record/delete
+POST /api/admin/strategy-definitions
 POST /api/admin/tag/create
 POST /api/admin/tag/delete
 POST /api/admin/tag/update
@@ -175,3 +179,4 @@ POST /api/sysinfo_ver
 PUT /api/ab/peer/update/:guid
 PUT /api/ab/tag/rename/:guid
 PUT /api/ab/tag/update/:guid
+PUT /api/admin/strategy-definitions/:id
