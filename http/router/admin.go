@@ -143,9 +143,9 @@ func TagBind(rg *gin.RouterGroup, sessions *httpapi.Handler) {
 		cont := &admin.Tag{}
 		aR.GET("/list", cont.List)
 		aR.GET("/detail/:id", cont.Detail)
-		aR.POST("/create", cont.Create)
-		aR.POST("/update", cont.Update)
-		aR.POST("/delete", cont.Delete)
+		aR.POST("/create", sessions.TagCreate(true))
+		aR.POST("/update", sessions.TagUpdate(true))
+		aR.POST("/delete", sessions.TagDelete(true))
 	}
 }
 
@@ -237,9 +237,9 @@ func AddressBookCollectionRuleBind(rg *gin.RouterGroup, sessions *httpapi.Handle
 		cont := &admin.AddressBookCollectionRule{}
 		aR.GET("/list", cont.List)
 		aR.GET("/detail/:id", cont.Detail)
-		aR.POST("/create", cont.Create)
-		aR.POST("/update", cont.Update)
-		aR.POST("/delete", cont.Delete)
+		aR.POST("/create", sessions.RuleCreate(true))
+		aR.POST("/update", sessions.RuleUpdate(true))
+		aR.POST("/delete", sessions.RuleDelete(true))
 	}
 }
 func UserTokenBind(rg *gin.RouterGroup, sessions *httpapi.Handler) {
@@ -295,9 +295,9 @@ func MyBind(rg *gin.RouterGroup, sessions *httpapi.Handler) {
 	{
 		cont := &my.Tag{}
 		rg.GET("/my/tag/list", cont.List)
-		rg.POST("/my/tag/create", cont.Create)
-		rg.POST("/my/tag/update", cont.Update)
-		rg.POST("/my/tag/delete", cont.Delete)
+		rg.POST("/my/tag/create", sessions.TagCreate(false))
+		rg.POST("/my/tag/update", sessions.TagUpdate(false))
+		rg.POST("/my/tag/delete", sessions.TagDelete(false))
 	}
 
 	{
@@ -310,9 +310,9 @@ func MyBind(rg *gin.RouterGroup, sessions *httpapi.Handler) {
 	{
 		cont := &my.AddressBookCollectionRule{}
 		rg.GET("/my/address_book_collection_rule/list", cont.List)
-		rg.POST("/my/address_book_collection_rule/create", cont.Create)
-		rg.POST("/my/address_book_collection_rule/update", cont.Update)
-		rg.POST("/my/address_book_collection_rule/delete", cont.Delete)
+		rg.POST("/my/address_book_collection_rule/create", sessions.RuleCreate(false))
+		rg.POST("/my/address_book_collection_rule/update", sessions.RuleUpdate(false))
+		rg.POST("/my/address_book_collection_rule/delete", sessions.RuleDelete(false))
 	}
 	{
 		cont := &my.Peer{}

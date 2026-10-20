@@ -17,6 +17,7 @@ import (
 	"github.com/lejianwen/rustdesk-api/v2/global"
 	"github.com/lejianwen/rustdesk-api/v2/http"
 	"github.com/lejianwen/rustdesk-api/v2/internal/app"
+	"github.com/lejianwen/rustdesk-api/v2/internal/bookadmin"
 	"github.com/lejianwen/rustdesk-api/v2/internal/clientassign"
 	"github.com/lejianwen/rustdesk-api/v2/internal/collectionadmin"
 	"github.com/lejianwen/rustdesk-api/v2/internal/database"
@@ -93,7 +94,12 @@ var rootCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
+		books, err := bookadmin.New(global.DB, bookadmin.Options{})
+		if err != nil {
+			return err
+		}
 		authHTTP, err := httpapi.New(sessions, httpapi.Options{
+			Books:               books,
 			Collections:         collections,
 			StrategyDefinitions: definitions,
 			Assign:              assign,

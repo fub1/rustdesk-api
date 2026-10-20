@@ -78,8 +78,38 @@ administrator's entry update retains the peer primary-book/alias/hostname/user
 name side effect, in the same transaction. `my` create and administrator batch
 add no longer independently change the peer alias. Administrator entry delete
 clears primary-book/alias only when that actual primary book matches its book.
-These are confirmed rules for the following slices, not completed delivery in
-LEG01B.
+Tag and sharing-rule writers implement these rules in LEG02-C. Entry writes
+and batches remain the following LEG02-D/E slices.
+
+## LEG02-C tag and sharing-rule writes
+
+The existing twelve admin/my Tag/Rule write routes use the instance-owned
+`bookadmin.Store`. They check the current enabled actor, administrator role,
+session PK, raw-token ambiguity and both expirations in the transaction. All
+participating users are locked in ascending order before session, parent and
+child rows. Shared full-control is not used as management authorization.
+
+Updates preserve the original owner and collection. An administrator may omit
+the owner when creating under a collection; its actual nonzero existing owner
+is used. New owner-zero children are rejected, while historical owner-zero tags
+remain maintainable by administrators. New sharing rules still require a real
+collection; historical personal-scope sharing rules can be deleted. Recipient
+existence, rule type and permission bounds retain their existing checks; this
+slice does not redesign recipient deletion.
+
+Tag names compare by exact bytes. Rename/delete operates on all historical
+same-name definitions in the exact owner/book and rewrites participating entry
+arrays in the same transaction. An update's color changes only its selected
+definition. The legacy create route still tolerates duplicates. Reference
+rewrites change only the tags column, preserving notes, credentials, metadata
+and entry timestamps. NULL, JSON null, malformed or non-string-array historical
+storage fails closed and rolls back; it is not silently converted to an empty
+array. New definitions do not introduce another table or constraint.
+
+The old entry and batch routes are not covered by LEG02-C. This remains an
+implementation boundary until those writers join the same lock/transaction
+protocol. Real web administration UI and official-client acceptance are still
+pending.
 
 Automated HTTP tests include persistent revocation, disablement, demotion and
 expiration injected after authentication middleware has passed. Core tests

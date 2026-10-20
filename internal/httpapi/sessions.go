@@ -12,6 +12,7 @@ import (
 	"github.com/gin-gonic/gin"
 	apiResponse "github.com/lejianwen/rustdesk-api/v2/http/response/api"
 	"github.com/lejianwen/rustdesk-api/v2/internal/auth"
+	"github.com/lejianwen/rustdesk-api/v2/internal/bookadmin"
 	"github.com/lejianwen/rustdesk-api/v2/internal/clientassign"
 	"github.com/lejianwen/rustdesk-api/v2/internal/collectionadmin"
 	"github.com/lejianwen/rustdesk-api/v2/internal/oidclogin"
@@ -34,6 +35,7 @@ type Options struct {
 	Assign              *clientassign.Store
 	StrategyDefinitions *strategydefinitions.Store
 	Collections         *collectionadmin.Store
+	Books               *bookadmin.Store
 }
 
 const DefaultTimeout = 5 * time.Second
@@ -44,6 +46,7 @@ type Handler struct {
 	assign                  *clientassign.Store
 	strategyDefinitions     *strategydefinitions.Store
 	collections             *collectionadmin.Store
+	books                   *bookadmin.Store
 	translate               Translate
 	userRoutes, adminRoutes []string
 	timeout                 time.Duration
@@ -60,7 +63,7 @@ func New(sessions *auth.Service, options Options) (*Handler, error) {
 	if options.Timeout == 0 {
 		options.Timeout = DefaultTimeout
 	}
-	return &Handler{sessions: sessions, oidc: options.OIDC, assign: options.Assign, strategyDefinitions: options.StrategyDefinitions, collections: options.Collections, translate: options.Translate, timeout: options.Timeout, observe: options.Observe, userRoutes: append([]string(nil), model.UserRouteNames...), adminRoutes: append([]string(nil), model.AdminRouteNames...)}, nil
+	return &Handler{sessions: sessions, oidc: options.OIDC, assign: options.Assign, strategyDefinitions: options.StrategyDefinitions, collections: options.Collections, books: options.Books, translate: options.Translate, timeout: options.Timeout, observe: options.Observe, userRoutes: append([]string(nil), model.UserRouteNames...), adminRoutes: append([]string(nil), model.AdminRouteNames...)}, nil
 }
 
 func Current(c *gin.Context) (auth.Principal, bool) {
