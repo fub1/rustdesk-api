@@ -1,5 +1,10 @@
 # Local session boundary (ARCH 02)
 
+Current policy: [SEC07 / SEC08 / PRE01 decisions](session-and-preset-decisions.md).
+The signed-session absolute lifetime is confirmed; opaque and disable/re-enable
+policy remain separate decisions. Local email/TOTP verification is outside the
+development scope by the latest user decision.
+
 The original ARCH 02 slice unified authentication of **already issued local sessions**, current
 user responses, logout and direct administrator session revocation. It reuses
 the existing users/user_tokens/peers schema. It does not introduce identity,
@@ -20,12 +25,14 @@ both headers require valid HS256, a required signed expiration, and `user_id`
 equal to the DB session's user. The local session JWT is not an OIDC ID/access
 token. Provider tokens are not accepted merely because they are signed.
 
-The configured `app.token-expire` remains the DB sliding lifetime. Zero now
-correctly defaults to 168 hours (the previous issuance fallback was nanoseconds);
-negative TTL prevents session construction. Remaining lifetime below one third
-of the configured TTL may renew an existing live DB row. Renewal never creates
-a missing/revoked row or shortens another request's extension. Signed sessions
-are capped by JWT expiration, so a DB renewal cannot revive an expired JWT.
+New signed sessions use `app.token-expire` for both JWT exp and DB expiry:
+this is their fixed absolute lifetime, defaulting to 168 hours for zero. Activity
+and autoLogin do not extend that signature, and no refresh token is issued.
+The legacy `jwt.expire-duration` does not control current instance issuance.
+Negative TTL prevents construction. Without a signing key, opaque sessions still
+use a sliding DB lifetime: below one third of the TTL they may renew an existing
+live row. That branch currently has no absolute cap and needs a separate policy
+decision. Renewal never recreates a revoked row or shortens a concurrent extension.
 All internal instants are UTC with the legacy Unix-second expiry precision.
 
 New legacy JWT issuance includes a random jti so same-user, same-second logins
@@ -34,7 +41,7 @@ rejected; their users must log in again. Enabling/changing a JWT key or deployin
 the newly consistent signed-expiry checks can invalidate previously accepted
 admin sessions; plan a fresh login during rollout. Existing valid, unambiguous
 sessions need no table migration. ARCH 04 new opaque sessions now use 32 random
-bytes. Token hashing, absolute local session lifetimes and stored session-purpose
+bytes. Token hashing, opaque absolute lifetimes and stored session-purpose
 isolation remain separate policy/schema work; OIDC attempts already enforce their
 own absolute TTL and flow/audience isolation.
 
@@ -116,5 +123,7 @@ OIDC users require explicit binding or configured ordinary-account registration.
 The old OIDC/cache/confirmation controllers are no longer registered, including
 their aliases. New native/admin polling retains the expected response shapes,
 checks device and route audience, and revalidates every cached local session.
-Production client registration, deployed IdP SHA/issuer and actual Flutter/UI
-acceptance are still outstanding; see [oidc.md](oidc.md).
+Ordinary OIDC login has since passed on the actual Ubuntu 1.5.0 client; that does
+not accept logout/disable/password-change interactions or the later patches.
+Current IdP logout limits and the remaining live acceptance are recorded in the
+[decision record](session-and-preset-decisions.md); see [oidc.md](oidc.md) for protocol details.

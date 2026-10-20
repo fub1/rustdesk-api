@@ -2664,6 +2664,7 @@
     {
       "id": "F4",
       "title": "Sysinfo presets are partly ignored and side effects can be acknowledged before storage",
+      "source_correction": "PRE01: real account key is preset-user-name; preset-strategy-name and preset-device-group-name are separate keys. Historical facts retained below; current sysinfo request already lists corrected wire names.",
       "facts": "客户端可附preset-address-book-tag/password/note、preset-username/strategy-name/device-group-name、preset-note；PeerForm只有name/alias两个preset字段。ApplyPresetToAddressBook固定user_id=1，DB失败静默，外层仍SYSINFO_UPDATED。",
       "impact": "成功文本能让客户端认为本轮sysinfo已传完，但不能证明预设归属/标签/密码/备注/策略/组已落库。owner1还使同名非owner1地址簿不可自动匹配。"
     },

@@ -947,6 +947,8 @@ API入口/实现：[http/router/api.go:14-130 (POST /api/ab/get absent; GET /api
 
 **F3 · POST login supports password account, not client multi-stage verification**：官方login.dart实际可发type=email_code、verificationCode/tfaCode/secret且省略password；LoginForm没有这三项，Login始终username/password并固定access_token响应。type字段存在却不dispatch。 补核Sciter index.tis:1588-1599也确实发送type=email_code、verificationCode、tfaCode、secret，并非只有Dart DTO常量。 影响：若要支持客户端email_check/TFA后续验证，该同path能力尚未实现；当前服务没有启用这套challenge流程的证据，不据此声称当前账号被绕过。
 
+当前 PRE01 源码纠错：下面历史 F4 中 `preset-username` 应为 `preset-user-name`；`preset-strategy-name` 与 `preset-device-group-name` 是各自完整键名。设备预设名称/用户名折叠为基础 hostname/username；CLI 簿附属项仅随 address_book_name 发送。准入仍待确认，见[决策记录](session-and-preset-decisions.md)。
+
 **F4 · Sysinfo presets are partly ignored and side effects can be acknowledged before storage**：客户端可附preset-address-book-tag/password/note、preset-username/strategy-name/device-group-name、preset-note；PeerForm只有name/alias两个preset字段。ApplyPresetToAddressBook固定user_id=1，DB失败静默，外层仍SYSINFO_UPDATED。 影响：成功文本能让客户端认为本轮sysinfo已传完，但不能证明预设归属/标签/密码/备注/策略/组已落库。owner1还使同名非owner1地址簿不可自动匹配。
 
 **F5 · Sysinfo empty username cannot clear stored value**：sync.rs明确Windows用户名可在登录/登出时变化并触发重新上报；PeerService.Update使用GORM struct Updates(fpe)，会省略零值。 影响：username从非空变空时请求成功，数据库仍留旧用户；hostname等允许清空的字段有同类风险。此处只是HTTP写入映射审查。
