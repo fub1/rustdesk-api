@@ -76,8 +76,8 @@ administrator's entry update retains the peer primary-book/alias/hostname/user
 name side effect, in the same transaction. `my` create and administrator batch
 add no longer independently change the peer alias. Administrator entry delete
 clears primary-book/alias only when that actual primary book matches its book.
-Tag and sharing-rule writers implement these rules in LEG02-C, and individual
-entry writes in LEG02-D. Batches remain the following LEG02-E slice.
+Tag and sharing-rule writers implement these rules in LEG02-C, individual
+entry writes in LEG02-D, and the four batch routes in LEG02-E.
 
 ## LEG02-C tag and sharing-rule writes
 
@@ -105,7 +105,7 @@ storage fails closed and rolls back; it is not silently converted to an empty
 array. New definitions do not introduce another table or constraint.
 
 LEG02-C does not itself cover entry or batch routes. Individual entry routes
-join the protocol in LEG02-D below; batch routes still await LEG02-E. Real web
+join the protocol in LEG02-D below, and batches in LEG02-E. Real web
 administration UI and official-client acceptance are still pending.
 
 Automated HTTP tests include persistent revocation, disablement, demotion and
@@ -151,3 +151,45 @@ peer side effects and rollback. Native MySQL/PostgreSQL checks also exercise
 both collection-delete orders, peer-owner deletion and tag-rename competition,
 identity/owner drift, and real final-write COMMIT failure followed by retry.
 These checks do not constitute real web UI or official-client acceptance.
+
+## LEG02-E batch writes
+
+The existing administrator batch-create, administrator/my from-peers and my
+batch-tags routes use the same transaction admission and sorted lock protocol.
+Every target is checked before the first business mutation; one invalid or
+changed target rejects the whole request. Failed SQL, cancellation or actual
+COMMIT failure rolls back all items. No batch changes registered peer settings
+or deletes entries in other books.
+
+Administrator batch-create keeps its legacy raw multiple-user behavior: more
+than one supplied user ID forces personal-book scope and empty tags, even when
+the raw list repeats the same user. Every ID must be nonzero and exist; writes
+use sorted unique owners. A single target's collection must have that actual
+owner. Only the first existing exact-scope/device row in row-ID order receives
+the legacy nonzero-field patch: empty strings and false preserve their values,
+but tags are always replaced. Notes, identity, scope and other duplicate rows
+are preserved. Missing entries are inserted. The scalar user_id does not
+override the user_ids target list.
+
+From-peers requires all requested registered peers, rejecting empty, zero,
+duplicate or missing IDs and empty source device identities. My mode requires
+current-user-owned sources and destination; administrator mode checks the actual
+destination owner and collection. A personal administrator destination requires
+an explicit nonzero owner. Source row ID, device ID, UUID and owner are rechecked
+after locking. New entries copy only device ID, username, hostname and the
+existing OS-to-platform mapping; alias, notes and credentials are not copied.
+An existing exact-scope/device entry is skipped entirely.
+
+My batch-tags canonicalizes duplicate row IDs and requires every row to exist
+and belong to the current owner and a valid book scope. It replaces only tags
+and normal update timestamps; absent/empty tags clear to an empty array. It
+does not create tag definitions. The former 999-row truncation is removed;
+automated checks request and read back 1001 entries in one operation. There is
+no replacement arbitrary row cap.
+
+Native MySQL/PostgreSQL tests cover whole-batch rollback after a later item,
+final-write COMMIT failure and retry, parent/source drift, fresh session checks
+after a native lock wait, and both orders against collection deletion and
+client tag rename. Automated HTTP tests cover all four routes with revoked
+sessions and restored-session success controls. No new schema is introduced.
+Real administration UI and official-client acceptance remain pending.
