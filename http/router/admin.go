@@ -55,7 +55,7 @@ func Init(g *gin.Engine, sessions *httpapi.Handler) {
 	//deprecated end
 
 	ShareRecordBind(adg, sessions)
-	MyBind(adg)
+	MyBind(adg, sessions)
 
 	RustdeskCmdBind(adg, sessions)
 	DeviceGroupBind(adg, sessions)
@@ -223,12 +223,11 @@ func AuditBind(rg *gin.RouterGroup, sessions *httpapi.Handler) {
 func AddressBookCollectionBind(rg *gin.RouterGroup, sessions *httpapi.Handler) {
 	aR := rg.Group("/address_book_collection").Use(sessions.RequireAdmin())
 	{
-		cont := &admin.AddressBookCollection{}
-		aR.GET("/list", cont.List)
-		aR.GET("/detail/:id", cont.Detail)
-		aR.POST("/create", cont.Create)
-		aR.POST("/update", cont.Update)
-		aR.POST("/delete", cont.Delete)
+		aR.GET("/list", sessions.CollectionList(true))
+		aR.GET("/detail/:id", sessions.CollectionDetail)
+		aR.POST("/create", sessions.CollectionCreate(true))
+		aR.POST("/update", sessions.CollectionUpdate(true))
+		aR.POST("/delete", sessions.CollectionDelete(true))
 	}
 
 }
@@ -275,7 +274,7 @@ func FileBind(rg *gin.RouterGroup) {
 	}
 }*/
 
-func MyBind(rg *gin.RouterGroup) {
+func MyBind(rg *gin.RouterGroup, sessions *httpapi.Handler) {
 	{
 		cont := &my.ShareRecord{}
 		rg.GET("/my/share_record/list", cont.List)
@@ -302,11 +301,10 @@ func MyBind(rg *gin.RouterGroup) {
 	}
 
 	{
-		cont := &my.AddressBookCollection{}
-		rg.GET("/my/address_book_collection/list", cont.List)
-		rg.POST("/my/address_book_collection/create", cont.Create)
-		rg.POST("/my/address_book_collection/update", cont.Update)
-		rg.POST("/my/address_book_collection/delete", cont.Delete)
+		rg.GET("/my/address_book_collection/list", sessions.CollectionList(false))
+		rg.POST("/my/address_book_collection/create", sessions.CollectionCreate(false))
+		rg.POST("/my/address_book_collection/update", sessions.CollectionUpdate(false))
+		rg.POST("/my/address_book_collection/delete", sessions.CollectionDelete(false))
 	}
 
 	{

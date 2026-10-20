@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/lejianwen/rustdesk-api/v2/internal/collectionguard"
 	"github.com/lejianwen/rustdesk-api/v2/model"
 	"github.com/lejianwen/rustdesk-api/v2/model/custom_types"
 	"gorm.io/driver/sqlite"
@@ -37,6 +38,7 @@ func collectionFixtureDB(t *testing.T) collectionFixture {
 	issuanceCreate(t, db, &book)
 	issuanceCreate(t, db, &model.AddressBookCollectionRule{UserId: owner.Id, CollectionId: book.Id, ToId: other.Id, Type: 1, Rule: 3})
 	issuanceCreate(t, db, &model.AddressBook{Id: "device", UserId: owner.Id, CollectionId: book.Id, Note: "keep note", Tags: custom_types.AutoJson(`["keep"]`)})
+	issuanceCreate(t, db, &model.Tag{UserId: owner.Id, CollectionId: book.Id, Name: "keep"})
 	return collectionFixture{db: db, owner: owner, other: other, book: book}
 }
 
@@ -45,16 +47,17 @@ func collectionRows(t *testing.T, db *gorm.DB) []any {
 	var books []model.AddressBookCollection
 	var rules []model.AddressBookCollectionRule
 	var entries []model.AddressBook
-	for _, rows := range []any{&books, &rules, &entries} {
+	var tags []model.Tag
+	for _, rows := range []any{&books, &rules, &entries, &tags} {
 		if err := db.Find(rows).Error; err != nil {
 			t.Fatal(err)
 		}
 	}
-	return []any{books, rules, entries}
+	return []any{books, rules, entries, tags}
 }
 
 func TestLegacyCollectionDeleteRollsBackEveryStatementFailure(t *testing.T) {
-	for _, table := range []string{"address_book_collection_rules", "address_books", "address_book_collections"} {
+	for _, table := range []string{"address_book_collection_rules", "address_books", "tags", "address_book_collections"} {
 		t.Run(table, func(t *testing.T) {
 			f := collectionFixtureDB(t)
 			before := collectionRows(t, f.db)
@@ -69,7 +72,7 @@ func TestLegacyCollectionDeleteRollsBackEveryStatementFailure(t *testing.T) {
 			if err := (&AddressBookService{}).DeleteCollection(&f.book); err != nil {
 				t.Fatal("retry failed", err)
 			}
-			for _, row := range []any{&model.AddressBookCollection{}, &model.AddressBookCollectionRule{}, &model.AddressBook{}} {
+			for _, row := range []any{&model.AddressBookCollection{}, &model.AddressBookCollectionRule{}, &model.AddressBook{}, &model.Tag{}} {
 				if issuanceCount(t, f.db, row) != 0 {
 					t.Fatal("successful collection delete left its related rows")
 				}
@@ -104,7 +107,7 @@ func (tx collectionCommitTx) Commit() error {
 }
 
 func TestLegacyCollectionWritesRejectCommitFailure(t *testing.T) {
-	for _, operation := range []string{"update", "delete"} {
+	for _, operation := range []string{"create", "update", "delete"} {
 		t.Run(operation, func(t *testing.T) {
 			f := collectionFixtureDB(t)
 			before := collectionRows(t, f.db)
@@ -117,8 +120,10 @@ func TestLegacyCollectionWritesRejectCommitFailure(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if operation == "update" {
-				err = (&AddressBookService{}).UpdateCollection(&model.AddressBookCollection{IdModel: f.book.IdModel, UserId: f.other.Id, Name: "changed"})
+			if operation == "create" {
+				err = (&AddressBookService{}).CreateCollection(&model.AddressBookCollection{UserId: f.owner.Id, Name: "created"})
+			} else if operation == "update" {
+				err = (&AddressBookService{}).UpdateCollection(&model.AddressBookCollection{IdModel: f.book.IdModel, UserId: f.owner.Id, Name: "changed"})
 			} else {
 				err = (&AddressBookService{}).DeleteCollection(&f.book)
 			}
@@ -193,7 +198,7 @@ func TestLegacyCollectionUpdateRollsBackStatementFailure(t *testing.T) {
 	f := collectionFixtureDB(t)
 	before := collectionRows(t, f.db)
 	issuanceSQL(t, f.db, "CREATE TRIGGER fail_collection_update BEFORE UPDATE ON address_book_collections BEGIN SELECT RAISE(ABORT, 'collection update fault'); END")
-	if err := (&AddressBookService{}).UpdateCollection(&model.AddressBookCollection{IdModel: f.book.IdModel, UserId: f.other.Id, Name: "must-not-apply"}); err == nil {
+	if err := (&AddressBookService{}).UpdateCollection(&model.AddressBookCollection{IdModel: f.book.IdModel, UserId: f.owner.Id, Name: "must-not-apply"}); err == nil {
 		t.Fatal("a failed update statement was acknowledged")
 	}
 	if !reflect.DeepEqual(before, collectionRows(t, f.db)) {
@@ -237,17 +242,20 @@ func TestLegacyCollectionWritesRecheckOwnerAfterCandidateRead(t *testing.T) {
 	}
 }
 
-func TestLegacyCollectionUpdatePreservesSemanticsAndZeroOwner(t *testing.T) {
+func TestLegacyCollectionUpdateRejectsTransferAndPreservesHistoricalZeroOwner(t *testing.T) {
 	f := collectionFixtureDB(t)
 	service := &AddressBookService{}
-	if err := service.UpdateCollection(&model.AddressBookCollection{IdModel: f.book.IdModel, UserId: f.other.Id, Name: "moved"}); err != nil {
-		t.Fatal(err)
+	if err := service.UpdateCollection(&model.AddressBookCollection{IdModel: f.book.IdModel, UserId: f.other.Id, Name: "moved"}); !errors.Is(err, collectionguard.ErrInput) {
+		t.Fatal("ordinary editing must reject owner transfer", err)
+	}
+	if err := service.UpdateCollection(&model.AddressBookCollection{IdModel: f.book.IdModel, UserId: f.owner.Id, Name: "renamed"}); err != nil {
+		t.Fatal("same-owner rename failed", err)
 	}
 	if err := service.UpdateCollection(&model.AddressBookCollection{IdModel: f.book.IdModel}); err != nil {
 		t.Fatal(err)
 	}
 	var current model.AddressBookCollection
-	if err := f.db.First(&current, f.book.Id).Error; err != nil || current.UserId != f.other.Id || current.Name != "moved" {
+	if err := f.db.First(&current, f.book.Id).Error; err != nil || current.UserId != f.owner.Id || current.Name != "renamed" {
 		t.Fatal("legacy omitted/zero fields changed update semantics", err)
 	}
 	zero := model.AddressBookCollection{Name: "unowned"}
@@ -258,12 +266,14 @@ func TestLegacyCollectionUpdatePreservesSemanticsAndZeroOwner(t *testing.T) {
 	if err := service.DeleteCollection(&zero); err != nil {
 		t.Fatal("historical zero-owner cleanup rejected", err)
 	}
-	if err := service.DeleteCollection(&f.book); err == nil {
-		t.Fatal("stale caller owner deleted a transferred collection")
+	stale := f.book
+	stale.UserId = f.other.Id
+	if err := service.DeleteCollection(&stale); err == nil {
+		t.Fatal("stale caller owner deleted a collection")
 	}
 }
 
-func TestLegacyCollectionConcurrentOppositeTransfers(t *testing.T) {
+func TestLegacyCollectionConcurrentOppositeTransfersAreRejected(t *testing.T) {
 	f := collectionFixtureDB(t)
 	second := model.AddressBookCollection{UserId: f.other.Id, Name: "second"}
 	issuanceCreate(t, f.db, &second)
@@ -287,12 +297,12 @@ func TestLegacyCollectionConcurrentOppositeTransfers(t *testing.T) {
 		t.Fatal("opposite transfers blocked")
 	}
 	for n := 0; n < 2; n++ {
-		if err := <-results; err != nil {
-			t.Fatal("opposite transfer failed", err)
+		if err := <-results; !errors.Is(err, collectionguard.ErrInput) {
+			t.Fatal("opposite transfer was not rejected", err)
 		}
 	}
 	var books []model.AddressBookCollection
-	if err := f.db.Order("id").Find(&books).Error; err != nil || len(books) != 2 || books[0].UserId != f.other.Id || books[1].UserId != f.owner.Id {
-		t.Fatal("opposite transfers lost an owner update", err)
+	if err := f.db.Order("id").Find(&books).Error; err != nil || len(books) != 2 || books[0].UserId != f.owner.Id || books[1].UserId != f.other.Id || books[0].Name != f.book.Name || books[1].Name != second.Name {
+		t.Fatal("rejected opposite transfers changed ownership", err)
 	}
 }

@@ -18,6 +18,7 @@ import (
 	"github.com/lejianwen/rustdesk-api/v2/http"
 	"github.com/lejianwen/rustdesk-api/v2/internal/app"
 	"github.com/lejianwen/rustdesk-api/v2/internal/clientassign"
+	"github.com/lejianwen/rustdesk-api/v2/internal/collectionadmin"
 	"github.com/lejianwen/rustdesk-api/v2/internal/database"
 	"github.com/lejianwen/rustdesk-api/v2/internal/httpapi"
 	"github.com/lejianwen/rustdesk-api/v2/internal/lifecycle"
@@ -88,7 +89,12 @@ var rootCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
+		collections, err := collectionadmin.New(global.DB, collectionadmin.Options{})
+		if err != nil {
+			return err
+		}
 		authHTTP, err := httpapi.New(sessions, httpapi.Options{
+			Collections:         collections,
 			StrategyDefinitions: definitions,
 			Assign:              assign,
 			OIDC:                oidcLogin,

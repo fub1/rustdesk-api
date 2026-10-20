@@ -1,9 +1,11 @@
 package service
 
 import (
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"github.com/google/uuid"
+	"github.com/lejianwen/rustdesk-api/v2/internal/collectionguard"
 	"github.com/lejianwen/rustdesk-api/v2/model"
 	"github.com/lejianwen/rustdesk-api/v2/model/custom_types"
 	"gorm.io/gorm"
@@ -332,17 +334,45 @@ func (s *AddressBookService) CheckUserFullControlPrivilege(user *model.User, uid
 }
 
 func (s *AddressBookService) CreateCollection(t *model.AddressBookCollection) error {
-	return DB.Create(t).Error
+	if t == nil || t.Id != 0 || t.UserId == 0 || t.Name == "" {
+		return collectionguard.ErrInput
+	}
+	if DB == nil || DB.Error != nil {
+		return collectionguard.ErrUnavailable
+	}
+	var created model.AddressBookCollection
+	err := DB.Transaction(func(tx *gorm.DB) error {
+		var owner model.User
+		query := tx
+		if tx.Dialector.Name() != "sqlite" {
+			query = tx.Clauses(clause.Locking{Strength: "UPDATE"})
+		}
+		if err := query.First(&owner, t.UserId).Error; err != nil {
+			return err
+		}
+		if owner.Status != model.COMMON_STATUS_ENABLE {
+			return collectionguard.ErrInput
+		}
+		created = model.AddressBookCollection{UserId: owner.Id, Name: t.Name}
+		return tx.Create(&created).Error
+	}, &sql.TxOptions{Isolation: sql.LevelReadCommitted})
+	if err == nil {
+		*t = created
+	}
+	return err
 }
 
 func (s *AddressBookService) UpdateCollection(t *model.AddressBookCollection) error {
 	if t == nil {
 		return gorm.ErrRecordNotFound
 	}
-	return collectionTransaction(DB, t.Id, t.UserId, nil, func(tx *gorm.DB, _ *model.AddressBookCollection) error {
-		// Preserve the legacy struct-update contract: omitted/zero fields are
-		// not clears, and an explicit nonzero owner may transfer the collection.
-		return tx.Model(t).Updates(t).Error
+	return collectionTransaction(DB, t.Id, t.UserId, nil, false, func(tx *gorm.DB, current *model.AddressBookCollection) error {
+		// Omitted legacy names remain a no-op. Ownership and metadata cannot
+		// be edited through this ordinary rename path.
+		if t.Name == "" {
+			return nil
+		}
+		return tx.Model(current).Update("name", t.Name).Error
 	})
 }
 
@@ -356,22 +386,17 @@ func (s *AddressBookService) DeleteCollection(t *model.AddressBookCollection) er
 		// owner must not delete a collection transferred after that read.
 		expectedOwner = &t.UserId
 	}
-	return collectionTransaction(DB, t.Id, 0, expectedOwner, func(tx *gorm.DB, current *model.AddressBookCollection) error {
-		for _, row := range []any{&model.AddressBookCollectionRule{}, &model.AddressBook{}} {
-			if err := tx.Where("collection_id = ?", current.Id).Delete(row).Error; err != nil {
-				return err
-			}
-		}
-		return tx.Delete(current).Error
+	return collectionTransaction(DB, t.Id, 0, expectedOwner, true, func(tx *gorm.DB, current *model.AddressBookCollection) error {
+		return collectionguard.DeleteContents(tx, current.Id)
 	})
 }
 
-// collectionTransaction coordinates legacy rename/transfer/delete with the
+// collectionTransaction coordinates legacy rename/delete with the
 // owner's client writes and CLI assignment. Never acquire a peer lock here:
 // heartbeat and CLI both acquire the peer before a collection. The read before
 // the transaction is only a candidate; ownership is rechecked after all user
 // locks and the collection lock have been acquired.
-func collectionTransaction(db *gorm.DB, id, nextOwner uint, expectedOwner *uint, mutate func(*gorm.DB, *model.AddressBookCollection) error) error {
+func collectionTransaction(db *gorm.DB, id, requestedOwner uint, expectedOwner *uint, deleting bool, mutate func(*gorm.DB, *model.AddressBookCollection) error) error {
 	if id == 0 {
 		return gorm.ErrRecordNotFound
 	}
@@ -385,9 +410,12 @@ func collectionTransaction(db *gorm.DB, id, nextOwner uint, expectedOwner *uint,
 	if expectedOwner != nil && candidate.UserId != *expectedOwner {
 		return errors.New("collection owner changed")
 	}
+	if requestedOwner != 0 && requestedOwner != candidate.UserId {
+		return collectionguard.ErrInput
+	}
 	return db.Transaction(func(tx *gorm.DB) error {
 		owners := []uint{}
-		for _, owner := range []uint{candidate.UserId, nextOwner} {
+		for _, owner := range []uint{candidate.UserId} {
 			if owner != 0 && (len(owners) == 0 || owners[0] != owner) {
 				owners = append(owners, owner)
 			}
@@ -405,6 +433,11 @@ func collectionTransaction(db *gorm.DB, id, nextOwner uint, expectedOwner *uint,
 				return err
 			}
 		}
+		if deleting {
+			if err := collectionguard.EnsureUnreferenced(tx, []uint{id}); err != nil {
+				return err
+			}
+		}
 		var current model.AddressBookCollection
 		if err := lock(tx).First(&current, id).Error; err != nil {
 			return err
@@ -412,8 +445,13 @@ func collectionTransaction(db *gorm.DB, id, nextOwner uint, expectedOwner *uint,
 		if current.UserId != candidate.UserId {
 			return errors.New("collection owner changed")
 		}
+		if deleting {
+			if err := collectionguard.EnsureUnreferenced(tx, []uint{id}); err != nil {
+				return err
+			}
+		}
 		return mutate(tx, &current)
-	})
+	}, &sql.TxOptions{Isolation: sql.LevelReadCommitted})
 }
 
 func (s *AddressBookService) RuleInfoById(u uint) *model.AddressBookCollectionRule {
@@ -463,12 +501,13 @@ func (s *AddressBookService) CheckCollectionOwner(uid uint, cid uint) bool {
 
 // ApplyPresetToAddressBook 根据客户端上报的预设值自动将设备添加到指定地址簿集合
 // 参数：
-//   peerId   - 设备ID
-//   os       - 操作系统信息
-//   abName   - preset-address-book-name，地址簿集合名称
-//   abAlias  - preset-address-book-alias，地址簿中的别名
-//   hostname - 主机名（客户端已将 preset-device-name 写入 hostname 字段）
-//   username - 用户名（客户端已将 preset-device-username 写入 username 字段）
+//
+//	peerId   - 设备ID
+//	os       - 操作系统信息
+//	abName   - preset-address-book-name，地址簿集合名称
+//	abAlias  - preset-address-book-alias，地址簿中的别名
+//	hostname - 主机名（客户端已将 preset-device-name 写入 hostname 字段）
+//	username - 用户名（客户端已将 preset-device-username 写入 username 字段）
 func (s *AddressBookService) ApplyPresetToAddressBook(peerRowId uint, peerId, os, abName, abAlias, hostname, username string) {
 	if abName == "" {
 		return
