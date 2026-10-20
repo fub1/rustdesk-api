@@ -2,7 +2,11 @@
 // Device strings remain report metadata, not proof of ownership or authority.
 package clientsysinfo
 
-import "encoding/json"
+import (
+	"bytes"
+	"encoding/json"
+	"strings"
+)
 
 type OptionalString struct {
 	Present bool
@@ -20,9 +24,9 @@ func (f *OptionalString) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-// Input is a whitelist, independent of the Peer persistence model. Only the
-// two already consumed preset options are retained here; other client options
-// do not become supported merely because the JSON decoder tolerates them.
+// Input is a whitelist, independent of the Peer persistence model. The named
+// preset fields remain recognized so direct Store callers also fail closed.
+// Every decoded preset-* field is checked, including unknown future options.
 type Input struct {
 	ID                     string         `json:"id"`
 	CPU                    OptionalString `json:"cpu"`
@@ -34,6 +38,7 @@ type Input struct {
 	Version                OptionalString `json:"version"`
 	PresetAddressBookName  OptionalString `json:"preset-address-book-name"`
 	PresetAddressBookAlias OptionalString `json:"preset-address-book-alias"`
+	managementPreset       bool
 }
 
 func (input *Input) UnmarshalJSON(data []byte) error {
@@ -51,9 +56,36 @@ func (input *Input) UnmarshalJSON(data []byte) error {
 	if !decoded.ID.Present || decoded.ID.Value == "" {
 		return ErrInput
 	}
+	// Walk every occurrence rather than a map: a duplicate empty value must
+	// not hide an earlier management request. Match case like encoding/json.
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	if _, err := decoder.Token(); err != nil {
+		return ErrInput
+	}
+	for decoder.More() {
+		key, err := decoder.Token()
+		if err != nil {
+			return ErrInput
+		}
+		var raw json.RawMessage
+		if err := decoder.Decode(&raw); err != nil {
+			return ErrInput
+		}
+		if strings.HasPrefix(strings.ToLower(key.(string)), "preset-") {
+			var preset OptionalString
+			if err := json.Unmarshal(raw, &preset); err != nil {
+				return ErrInput
+			}
+			value.managementPreset = value.managementPreset || preset.Value != ""
+		}
+	}
 	*input = Input(value)
 	input.ID = decoded.ID.Value
 	return nil
+}
+
+func (input Input) hasManagementPreset() bool {
+	return input.managementPreset || input.PresetAddressBookName.Value != "" || input.PresetAddressBookAlias.Value != ""
 }
 
 func (input Input) values() map[string]any {

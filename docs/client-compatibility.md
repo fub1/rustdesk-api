@@ -14,9 +14,9 @@ COMP11 对账号登录、OIDC auth-query、POST currentUser、GET user/info 和 
 
 COMP10 将匿名 sysinfo 基础写入收敛到 `internal/clientsysinfo` 的显式 DB/Context 事务和独立 DTO：固定1.5.0 在无活动用户时省略 username，因此省略或显式空串均清空旧用户名；cpu/hostname/memory/os/uuid/version 缺失保留、显式空串写入，已识别字段 null 拒绝400。id 必须为非空字符串，未知字段不进入持久化白名单。普通基础报告保留 owner/group/alias/ab/preset/在线记录等管理列，不改变其他调用方的通用 PeerService.Update。
 
-现有两个预设选项通过独立 legacy helper 保持原行为，已执行的基础写入、预设别名/地址簿写入及清理在同一事务内检查错误；只有提交成功才返回原文 `SYSINFO_UPDATED`。新建设备沿用 uuid+device id 最新登录日志关联；查询故障不再被当作不存在。预设 owner=1、准入和未支持的选项仍是 PRE01/02 的未完成范围，目标簿不存在继续兼容为无操作，不代表预设已生效。设备字符串仍是匿名报告资料，不是身份认证证明，未新增 UUID 绑定准入政策。
+PRE01-A 按已确认管理员CLI准入移除legacy预设helper及owner=1入簿/别名写入。任何非空preset-*在DB前403固定error，已出现null/非字符串400，空串no-op可继续基础ACK；未知未来/大小写/重复键亦受同一边界。新匿名设备owner0，不查历史登录日志；已有owner/group/alias/ab/preset/在线列保留。基础资料写入仍在同一事务、提交后才精确SYSINFO_UPDATED。管理预设转受鉴权CLI，A不新增该路由或模型，也不宣称预设业务已全部支持。
 
-`http/sysinfo_compat_test.go` 验证真实生产路由的无 Bearer 上报、空值/白名单、错误与回滚；`internal/integration/sysinfo_test.go` 验证 MySQL/PostgreSQL 的快照、部分字段并发与真实 COMMIT 回滚/重试。Store 的依赖已固定在实例内，HTTP 边界仍使用现有 service.DB/config 装配，不声称整个 legacy HTTP 已完成多实例解耦。本切片没有真实客户端用户名切换/退出后的重报验收，也没有新增预设业务准入验收。
+`http/sysinfo_compat_test.go` 验证真实生产路由的无 Bearer 上报、空值/白名单、错误与回滚；`internal/integration/sysinfo_test.go` 验证 MySQL/PostgreSQL 的快照、部分字段并发与真实 COMMIT 回滚/重试。Store 的依赖已固定在实例内，HTTP 边界仍使用现有 service.DB/config 装配，不声称整个 legacy HTTP 已完成多实例解耦。PRE01-A的HTTP与Store回归另见http/sysinfo_admission_test.go及internal/clientsysinfo/admission_test.go；真实客户端用户名切换、带预设失败节流及后续CLI执行尚未验收。基础hostname/username仍可由匿名报告覆盖；管理权限保护不等于资料永久优先。
 
 COMP09 读取切片新增受客户端会话校验的 `POST /api/ab/get`，复用 `GET /api/ab` 的当前用户个人簿读取与失败处理。生产 HTTP/SQLite 回归覆盖双入口响应一致、双层 JSON 字符串、空数组、个人范围、匿名拒绝、数据库故障和取消。本切片未进行真实 Sciter 进程或标准 Flutter GUI 的新增验收；整本写入的后续兼容见下段。
 

@@ -2,6 +2,7 @@ package integration
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"reflect"
@@ -53,8 +54,8 @@ func TestClientSysinfoSnapshotsRealEngines(t *testing.T) {
 			t.Fatal(err)
 		}
 		got = model.Peer{}
-		if err := f.DB.Where("id = ?", created.ID).First(&got).Error; err != nil || got.UserId != owner.Id || got.Uuid != "created-uuid" || got.Username != "" || got.Hostname != "new host" {
-			t.Fatalf("new report did not preserve login-log owner lookup: %+v %v", got, err)
+		if err := f.DB.Where("id = ?", created.ID).First(&got).Error; err != nil || got.UserId != 0 || got.Uuid != "created-uuid" || got.Username != "" || got.Hostname != "new host" {
+			t.Fatalf("anonymous report inferred login-log owner or lost basic fields: %+v %v", got, err)
 		}
 		if err := store.Report(ctx, created); err != nil {
 			t.Fatal(err)
@@ -97,15 +98,15 @@ func TestClientSysinfoIndependentPoolsPreservePartialFields(t *testing.T) {
 	})
 }
 
-// The legacy preset's final peer link UPDATE is the last business SQL. Only
-// fail that UPDATE, after the base snapshot, book INSERT and cleanup succeeded.
-func failSysinfoPresetCommit(t *testing.T, f *fixture, collectionID uint) func() {
+// An existing peer report ends with one basic snapshot UPDATE. Inject actual
+// commit failure after that final SQL and verify rollback through a fresh pool.
+func failSysinfoUpdateCommit(t *testing.T, f *fixture) func() {
 	t.Helper()
 	if f.Engine == "postgres" {
 		transactionExec(t, f.DB, "CREATE TABLE sysinfo_commit_parent (id bigint PRIMARY KEY)")
 		transactionExec(t, f.DB, "CREATE TABLE sysinfo_commit_guard (parent_id bigint REFERENCES sysinfo_commit_parent(id) DEFERRABLE INITIALLY DEFERRED)")
 		transactionExec(t, f.DB, "CREATE FUNCTION sysinfo_fail_commit() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN INSERT INTO sysinfo_commit_guard(parent_id) VALUES (999999); RETURN NEW; END $$")
-		transactionExec(t, f.DB, fmt.Sprintf("CREATE TRIGGER sysinfo_fail_commit AFTER UPDATE ON peers FOR EACH ROW WHEN (NEW.ab_id = %d) EXECUTE FUNCTION sysinfo_fail_commit()", collectionID))
+		transactionExec(t, f.DB, "CREATE TRIGGER sysinfo_fail_commit AFTER UPDATE ON peers FOR EACH ROW EXECUTE FUNCTION sysinfo_fail_commit()")
 		return func() {
 			transactionExec(t, f.DB, "DROP TRIGGER sysinfo_fail_commit ON peers")
 			transactionExec(t, f.DB, "DROP FUNCTION sysinfo_fail_commit()")
@@ -120,7 +121,7 @@ func failSysinfoPresetCommit(t *testing.T, f *fixture, collectionID uint) func()
 		if !ok || tx.Statement.Table != "peers" || tx.Error != nil {
 			return
 		}
-		if _, present := values["ab_id"]; !present || !reached.CompareAndSwap(false, true) {
+		if _, present := values["username"]; !present || !reached.CompareAndSwap(false, true) {
 			return
 		}
 		var id uint64
@@ -138,7 +139,7 @@ func failSysinfoPresetCommit(t *testing.T, f *fixture, collectionID uint) func()
 	}
 	return func() {
 		if !reached.Load() || !killed.Load() {
-			t.Error("actual connection termination after final preset UPDATE not reached")
+			t.Error("actual connection termination after final basic UPDATE not reached")
 		}
 		if err := f.DB.Callback().Update().Remove("sysinfo:kill-before-commit"); err != nil {
 			t.Fatal(err)
@@ -147,29 +148,21 @@ func failSysinfoPresetCommit(t *testing.T, f *fixture, collectionID uint) func()
 }
 
 func TestClientSysinfoActualCommitRollbackAndRetry(t *testing.T) {
-	for _, preset := range []bool{false, true} {
-		t.Run(fmt.Sprintf("legacy-preset=%t", preset), func(t *testing.T) {
+	for _, existing := range []bool{false, true} {
+		t.Run(fmt.Sprintf("existing=%t", existing), func(t *testing.T) {
 			forEngines(t, func(t *testing.T, f *fixture) {
-				peer := model.Peer{Id: "commit-report", Uuid: "commit-uuid", Username: "before", Alias: "before alias", Hostname: "before host"}
-				input := clientsysinfo.Input{ID: peer.Id, UUID: sysinfoString(peer.Uuid), Hostname: sysinfoString("after host")}
-				var original model.AddressBook
-				var book model.AddressBookCollection
-				if preset {
+				peer := model.Peer{Id: "commit-report", Uuid: "commit-uuid", UserId: 1, Username: "before", Alias: "managed", Hostname: "before host"}
+				if existing {
 					transactionCreate(t, f.DB, &peer)
-					book = model.AddressBookCollection{UserId: 1, Name: "legacy-preset-target"}
-					transactionCreate(t, f.DB, &book)
-					original = model.AddressBook{Id: peer.Id, UserId: 1, CollectionId: 0, Alias: "original entry", Tags: custom_types.AutoJson(`[]`)}
-					transactionCreate(t, f.DB, &original)
-					input.PresetAddressBookName = sysinfoString(book.Name)
-					input.PresetAddressBookAlias = sysinfoString("after alias")
 				}
+				input := clientsysinfo.Input{ID: peer.Id, UUID: sysinfoString(peer.Uuid), Hostname: sysinfoString("after host")}
 				store, err := clientsysinfo.New(f.DB)
 				if err != nil {
 					t.Fatal(err)
 				}
 				var remove func()
-				if preset {
-					remove = failSysinfoPresetCommit(t, f, book.Id)
+				if existing {
+					remove = failSysinfoUpdateCommit(t, f)
 				} else {
 					remove = failTransactionCommit(t, f, "peers")
 				}
@@ -179,16 +172,12 @@ func TestClientSysinfoActualCommitRollbackAndRetry(t *testing.T) {
 				remove()
 				fresh := f.Reopen(t)
 				var got model.Peer
-				if preset {
-					if err := fresh.First(&got, peer.RowId).Error; err != nil || got.Username != peer.Username || got.Hostname != peer.Hostname || got.Alias != peer.Alias || got.AbId != 0 {
-						t.Fatalf("base/preset columns escaped failed COMMIT: %+v %v", got, err)
-					}
-					var gotEntry model.AddressBook
-					if err := fresh.First(&gotEntry, original.RowId).Error; err != nil || gotEntry.Alias != original.Alias || transactionCount(t, fresh, &model.AddressBook{}) != 1 {
-						t.Fatalf("preset insert/cleanup escaped failed COMMIT: %+v %v", gotEntry, err)
+				if existing {
+					if err := fresh.First(&got, peer.RowId).Error; err != nil || got.Username != peer.Username || got.Hostname != peer.Hostname || got.Alias != peer.Alias || got.UserId != peer.UserId {
+						t.Fatalf("basic UPDATE escaped failed COMMIT: %+v %v", got, err)
 					}
 				} else if transactionCount(t, fresh, &model.Peer{}) != 0 {
-					t.Fatal("failed COMMIT left a peer")
+					t.Fatal("failed COMMIT retained new peer")
 				}
 				retry, err := clientsysinfo.New(fresh)
 				if err != nil {
@@ -201,10 +190,73 @@ func TestClientSysinfoActualCommitRollbackAndRetry(t *testing.T) {
 				if err := fresh.Where("id = ?", peer.Id).First(&got).Error; err != nil || got.Hostname != "after host" || got.Username != "" {
 					t.Fatalf("snapshot retry not persisted: %+v %v", got, err)
 				}
-				if preset && (got.AbId != book.Id || got.Alias != "after alias" || transactionCount(t, fresh, &model.AddressBook{}) != 1) {
-					t.Fatal("preset retry did not commit one link and entry")
+				if existing && (got.UserId != peer.UserId || got.Alias != peer.Alias) || !existing && got.UserId != 0 {
+					t.Fatal("basic retry changed ownership or management columns")
 				}
 			})
 		})
 	}
+}
+
+func TestClientSysinfoManagementPresetRejectionRealEngines(t *testing.T) {
+	forEngines(t, func(t *testing.T, f *fixture) {
+		peer := model.Peer{Id: "preset-target", UserId: 1, Alias: "managed", Username: "before", Hostname: "before host"}
+		transactionCreate(t, f.DB, &peer)
+		book := model.AddressBookCollection{UserId: 1, Name: "legacy-target"}
+		transactionCreate(t, f.DB, &book)
+		entry := model.AddressBook{Id: peer.Id, UserId: 1, Tags: custom_types.AutoJson(`["sentinel"]`), Alias: "entry sentinel"}
+		transactionCreate(t, f.DB, &entry)
+		tag := model.Tag{UserId: 1, Name: "sentinel", Color: 7}
+		transactionCreate(t, f.DB, &tag)
+		beforePeers, beforeBooks, beforeEntries, beforeTags := transactionCount(t, f.DB, &model.Peer{}), transactionCount(t, f.DB, &model.AddressBookCollection{}), transactionCount(t, f.DB, &model.AddressBook{}), transactionCount(t, f.DB, &model.Tag{})
+		var original model.Peer
+		if err := f.DB.First(&original, peer.RowId).Error; err != nil {
+			t.Fatal(err)
+		}
+		store, err := clientsysinfo.New(f.DB)
+		if err != nil {
+			t.Fatal(err)
+		}
+		inputs := []clientsysinfo.Input{{ID: peer.Id, Username: sysinfoString("after"), PresetAddressBookName: sysinfoString(book.Name)}, {ID: peer.Id, PresetAddressBookAlias: sysinfoString("after alias")}}
+		for _, key := range []string{"preset-address-book-name", "preset-address-book-tag", "preset-address-book-alias", "preset-address-book-password", "preset-address-book-note", "preset-user-name", "preset-strategy-name", "preset-device-group-name", "preset-note", "preset-future-option"} {
+			for _, id := range []string{peer.Id, "unregistered"} {
+				body, err := json.Marshal(map[string]string{"id": id, "username": "after", key: "untrusted"})
+				if err != nil {
+					t.Fatal(err)
+				}
+				var input clientsysinfo.Input
+				if err := json.Unmarshal(body, &input); err != nil {
+					t.Fatal(err)
+				}
+				inputs = append(inputs, input)
+			}
+		}
+		for _, input := range inputs {
+			if err := store.Report(context.Background(), input); !errors.Is(err, clientsysinfo.ErrManagementPreset) {
+				t.Fatalf("management report was not explicitly rejected: %v", err)
+			}
+		}
+		if transactionCount(t, f.DB, &model.Peer{}) != beforePeers || transactionCount(t, f.DB, &model.AddressBookCollection{}) != beforeBooks || transactionCount(t, f.DB, &model.AddressBook{}) != beforeEntries || transactionCount(t, f.DB, &model.Tag{}) != beforeTags {
+			t.Fatal("rejected management report changed row counts")
+		}
+		var got model.Peer
+		if err := f.DB.First(&got, peer.RowId).Error; err != nil || !reflect.DeepEqual(got, original) {
+			t.Fatalf("rejected report changed existing peer: %+v %v", got, err)
+		}
+		var gotEntry model.AddressBook
+		var gotTag model.Tag
+		var gotBook model.AddressBookCollection
+		if err := f.DB.First(&gotEntry, entry.RowId).Error; err != nil || gotEntry.Alias != entry.Alias || string(gotEntry.Tags) != string(entry.Tags) {
+			t.Fatal("rejected report changed AB sentinel", err)
+		}
+		if err := f.DB.First(&gotTag, tag.Id).Error; err != nil || gotTag.Name != tag.Name || gotTag.Color != tag.Color {
+			t.Fatal("rejected report changed tag sentinel", err)
+		}
+		if err := f.DB.First(&gotBook, book.Id).Error; err != nil || gotBook.Name != book.Name || gotBook.UserId != book.UserId {
+			t.Fatal("rejected report changed book sentinel", err)
+		}
+		if err := store.Report(context.Background(), clientsysinfo.Input{ID: peer.Id, Hostname: sysinfoString("safe host")}); err != nil {
+			t.Fatal("rejected preset poisoned normal report", err)
+		}
+	})
 }

@@ -30,18 +30,10 @@ func TestSysInfoStoreInstancesNeverFollowLegacyGlobalDatabase(t *testing.T) {
 			t.Fatal(err)
 		}
 		t.Cleanup(func() { _ = pool.Close() })
-		if err := db.AutoMigrate(&model.Peer{}, &model.LoginLog{}, &model.AddressBookCollection{}, &model.AddressBook{}); err != nil {
+		if err := db.AutoMigrate(&model.Peer{}); err != nil {
 			t.Fatal(err)
 		}
-		// Exercise peer creation, login association, preset lookup/create and
-		// cleanup through each instance while globals point at the other DB.
-		if err := db.Create(&model.LoginLog{UserId: uint(11 + i), DeviceId: "device", Uuid: "uuid"}).Error; err != nil {
-			t.Fatal(err)
-		}
-		if err := db.Create(&model.AddressBookCollection{UserId: 1, Name: "target"}).Error; err != nil {
-			t.Fatal(err)
-		}
-		if err := db.Create(&model.AddressBook{UserId: 1, Id: "device"}).Error; err != nil {
+		if err := db.Create(&model.Peer{Id: "device", UserId: uint(11 + i), Alias: fmt.Sprintf("managed-%d", i)}).Error; err != nil {
 			t.Fatal(err)
 		}
 		stores[i], err = clientsysinfo.New(db)
@@ -52,8 +44,11 @@ func TestSysInfoStoreInstancesNeverFollowLegacyGlobalDatabase(t *testing.T) {
 	}
 	for i, store := range stores {
 		global.DB, service.DB = databases[1-i], databases[1-i]
-		input := clientsysinfo.Input{ID: "device", UUID: field("uuid"), Username: field(fmt.Sprintf("user-%d", i)), PresetAddressBookName: field("target"), PresetAddressBookAlias: field(fmt.Sprintf("alias-%d", i))}
+		input := clientsysinfo.Input{ID: "device", UUID: field("uuid"), Username: field(fmt.Sprintf("user-%d", i))}
 		if err := store.Report(context.Background(), input); err != nil {
+			t.Fatal(err)
+		}
+		if err := store.Report(context.Background(), clientsysinfo.Input{ID: "new", Username: field(fmt.Sprintf("new-%d", i))}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -62,15 +57,15 @@ func TestSysInfoStoreInstancesNeverFollowLegacyGlobalDatabase(t *testing.T) {
 		if err := db.Where("id = ?", "device").First(&peer).Error; err != nil {
 			t.Fatal(err)
 		}
-		if peer.UserId != uint(11+i) || peer.Username != fmt.Sprintf("user-%d", i) || peer.Alias != fmt.Sprintf("alias-%d", i) {
+		if peer.UserId != uint(11+i) || peer.Username != fmt.Sprintf("user-%d", i) || peer.Alias != fmt.Sprintf("managed-%d", i) {
 			t.Fatalf("instance %d followed global database: %+v", i, peer)
 		}
-		var rows []model.AddressBook
-		if err := db.Find(&rows).Error; err != nil {
+		var created model.Peer
+		if err := db.Where("id = ?", "new").First(&created).Error; err != nil {
 			t.Fatal(err)
 		}
-		if len(rows) != 1 || rows[0].CollectionId == 0 || rows[0].Username != peer.Username || rows[0].Alias != peer.Alias {
-			t.Fatalf("instance %d preset escaped transaction/database: %+v", i, rows)
+		if created.UserId != 0 || created.Username != fmt.Sprintf("new-%d", i) {
+			t.Fatalf("instance %d creation followed globals or assigned owner: %+v", i, created)
 		}
 	}
 }

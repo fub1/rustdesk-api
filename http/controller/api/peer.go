@@ -44,6 +44,10 @@ func (p *Peer) SysInfo(c *gin.Context) {
 	ctx, cancel := context.WithTimeout(c.Request.Context(), budget)
 	defer cancel()
 	if err := store.Report(ctx, input); err != nil {
+		if errors.Is(err, clientsysinfo.ErrManagementPreset) {
+			c.JSON(http.StatusForbidden, gin.H{"error": "Management presets require authenticated administrator assignment"})
+			return
+		}
 		if errors.Is(err, clientsysinfo.ErrInput) {
 			err = clientcompat.ErrInput
 		}

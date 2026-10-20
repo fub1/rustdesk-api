@@ -1,5 +1,7 @@
 # RustDesk 1.5.0 HTTP API 契约基线
 
+PRE01-A 更新：按已确认管理员CLI准入，匿名sysinfo仅基础资料；非空preset-*整请求403且DB零写，null/非字符串400，空串无操作。移除owner1匿名入簿及历史日志补owner，新设备未分配，已有管理字段保护。A未新增CLI/模型，真实客户端新增验收未完成；[决策与限制](session-and-preset-decisions.md)。
+
 COMP12-B 后续证据：settings/personal、标签四写入口与peer删除共七端点，已增加42个生产HTTP/SQLite无效会话组合和同范围正控制；本地logout旧token、禁用、撤销、过期等均验证401且七表原始数据不变。这不是实际Flutter/IdP退出验收，也未新增会话政策。
 
 COMP12-A 校正并修复 personal 关闭分支：旧200 null不能被固定客户端的非nullable Map解析；现返回404进入明确legacy分支。settings始终保持200对象；空body/{}、身份隔离及配置分支的HTTP回归见 `http/addressbook_initialization_test.go`。这是源码契约与HTTP证据，尚未真实Flutter验收。

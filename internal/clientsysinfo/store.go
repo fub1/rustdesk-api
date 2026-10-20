@@ -10,8 +10,9 @@ import (
 )
 
 var (
-	ErrInput       = errors.New("invalid sysinfo input")
-	ErrUnavailable = errors.New("sysinfo storage unavailable")
+	ErrInput            = errors.New("invalid sysinfo input")
+	ErrUnavailable      = errors.New("sysinfo storage unavailable")
+	ErrManagementPreset = errors.New("management presets require authenticated administrator assignment")
 )
 
 type Store struct{ db *gorm.DB }
@@ -30,6 +31,9 @@ func (s *Store) Report(ctx context.Context, input Input) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
+	if input.hasManagementPreset() {
+		return ErrManagementPreset
+	}
 	if s == nil || s.db == nil || s.db.Error != nil {
 		return ErrUnavailable
 	}
@@ -47,13 +51,10 @@ func (s *Store) Report(ctx context.Context, input Input) error {
 			return err
 		}
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			// Preserve the legacy registration association. This is not a new
-			// authentication rule, nor is a report allowed to reassign an owner.
-			var login model.LoginLog
-			if err := tx.Select("user_id").Where("uuid = ? AND device_id = ?", input.UUID.Value, input.ID).Order("id DESC").First(&login).Error; err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
-				return err
-			}
-			peer = model.Peer{Id: input.ID, Cpu: input.CPU.Value, Hostname: input.Hostname.Value, Memory: input.Memory.Value, Os: input.OS.Value, Username: input.Username.Value, Uuid: input.UUID.Value, Version: input.Version.Value, UserId: login.UserId}
+			// Anonymous device strings cannot turn a historical login into an
+			// ownership grant. New reports remain unassigned until an explicitly
+			// authenticated operation associates the already registered device.
+			peer = model.Peer{Id: input.ID, Cpu: input.CPU.Value, Hostname: input.Hostname.Value, Memory: input.Memory.Value, Os: input.OS.Value, Username: input.Username.Value, Uuid: input.UUID.Value, Version: input.Version.Value}
 			if err := tx.Create(&peer).Error; err != nil {
 				return err
 			}
@@ -62,7 +63,7 @@ func (s *Store) Report(ctx context.Context, input Input) error {
 				return err
 			}
 		}
-		return legacyPreset(tx, peer.RowId, input)
+		return nil
 	})
 	if err == nil {
 		return nil

@@ -528,15 +528,19 @@
         "http/sysinfo_compat_test.go:TestSysInfoPartialReportPreservesOtherFieldsAndManagementColumns",
         "http/sysinfo_compat_test.go:TestSysInfoRejectsNullFieldsAndInvalidEnvelope",
         "http/sysinfo_compat_test.go:TestSysInfoDatabaseErrorsAndCancellationFailClosed",
-        "http/sysinfo_compat_test.go:TestSysInfoNewPeerKeepsExistingLoginLogOwnerAssociation",
-        "http/sysinfo_compat_test.go:TestSysInfoLegacyPresetBehaviorIsIsolatedFromBasicFields",
-        "http/sysinfo_compat_test.go:TestSysInfoEveryExecutedLegacyPresetFailureRollsBack",
-        "http/sysinfo_compat_test.go:TestSysInfoCommitFailureDoesNotAcknowledgeOrKeepAnyWrites",
+        "http/sysinfo_compat_test.go:TestSysInfoNewPeerIgnoresLoginLogOwnerAndPreservesExplicitAssignments",
+        "http/sysinfo_compat_test.go:TestSysInfoBasicCreateAndUpdateCommitFailuresRemainRetryable",
         "internal/integration/sysinfo_test.go:TestClientSysinfoSnapshotsRealEngines",
         "internal/integration/sysinfo_test.go:TestClientSysinfoIndependentPoolsPreservePartialFields",
         "internal/integration/sysinfo_test.go:TestClientSysinfoActualCommitRollbackAndRetry",
         "http/sysinfo_compat_test.go:TestSysInfoCancellationAfterWriteRollsBackBeforeACK",
-        "internal/clientsysinfo/store_test.go:TestSysInfoStoreInstancesNeverFollowLegacyGlobalDatabase"
+        "internal/clientsysinfo/store_test.go:TestSysInfoStoreInstancesNeverFollowLegacyGlobalDatabase",
+        "http/sysinfo_admission_test.go:TestSysInfoRejectsManagementPresetsBeforeAnyMutation",
+        "http/sysinfo_admission_test.go:TestSysInfoPresetNamespaceTypesEmptyValuesAndDuplicateKeys",
+        "http/sysinfo_admission_test.go:TestSysInfoBasicReportsDoNotDependOnLoginOrManagementTables",
+        "http/sysinfo_admission_test.go:TestSysInfoNewAnonymousPeerNeverInfersOwnerFromLoginHistory",
+        "internal/clientsysinfo/admission_test.go:TestSysInfoStoreRejectsTypedAndDecodedManagementBeforeDatabaseAccess",
+        "internal/integration/sysinfo_test.go:TestClientSysinfoManagementPresetRejectionRealEngines"
       ],
       "fixture_status": "local_production_http_and_real_engine_regressions_not_real_client",
       "client_variants": [
@@ -586,8 +590,14 @@
       "implementation_update": {
         "task": "COMP10",
         "semantics": "username omission is empty snapshot; other basic fields preserve omission and write explicit empty; managed columns excluded; executed legacy preset operations share transaction and checked errors",
-        "scope": "anonymous reports remain metadata; legacy owner=1/admission/unsupported presets unresolved PRE01/02",
+        "scope": "historical COMP10 boundary; superseded by PRE01-A admission_update below",
         "real_client": "not run for this slice"
+      },
+      "admission_update": {
+        "task": "PRE01-A",
+        "semantics": "nonempty preset-* rejected403 before DB; null or nonstring rejected400; empty no-op; new anonymous peer owner0 without login-log inference; existing managed fields protected",
+        "scope": "no CLI route or schema in this slice; stock folded hostname/username remain report metadata; assignment implementation follows separately",
+        "real_client": "not run for new sysinfo admission/retry behavior"
       }
     },
     {

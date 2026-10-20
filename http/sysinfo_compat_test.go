@@ -3,6 +3,7 @@ package http
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -65,7 +66,7 @@ func TestSysInfoPartialReportPreservesOtherFieldsAndManagementColumns(t *testing
 	f := newSysInfoFixture(t)
 	row := model.Peer{Id: "device", Uuid: "uuid", UserId: f.owner.Id, GroupId: 19, Alias: "admin-alias", AbId: 11, Cpu: "cpu", Hostname: "host", Memory: "memory", Os: "Windows", Username: "old", Version: "version", LastOnlineTime: 789, LastOnlineIp: "192.0.2.1", PresetAbId: 12, PresetAbAlias: "preset-alias", PresetDevUsrName: "preset-user", PresetDevName: "preset-host", PresetModifiedAt: 123}
 	compatCreate(t, &row)
-	result := sysInfoCall(f, `{"id":"device","username":"new","row_id":999,"user_id":3,"group_id":7,"alias":"injected","ab_id":99,"preset_ab_id":99,"preset_ab_alias":"injected","preset_dev_usr_name":"injected","preset_dev_name":"injected","preset_modified_at":999,"last_online_time":999,"last_online_ip":"injected","preset-address-book-tag":"ignored-unimplemented"}`, nil)
+	result := sysInfoCall(f, `{"id":"device","username":"new","row_id":999,"user_id":3,"group_id":7,"alias":"injected","ab_id":99,"preset_ab_id":99,"preset_ab_alias":"injected","preset_dev_usr_name":"injected","preset_dev_name":"injected","preset_modified_at":999,"last_online_time":999,"last_online_ip":"injected","preset-address-book-tag":""}`, nil)
 	if result.Code != 200 || result.Body.String() != "SYSINFO_UPDATED" {
 		t.Fatalf("partial ACK: %d %s", result.Code, result.Body.String())
 	}
@@ -105,7 +106,7 @@ func TestSysInfoRejectsNullFieldsAndInvalidEnvelope(t *testing.T) {
 }
 
 func TestSysInfoDatabaseErrorsAndCancellationFailClosed(t *testing.T) {
-	for _, fault := range []string{"peer-read", "login-read", "create", "update"} {
+	for _, fault := range []string{"peer-read", "create", "update"} {
 		t.Run(fault, func(t *testing.T) {
 			f := newSysInfoFixture(t)
 			if fault == "update" {
@@ -114,11 +115,8 @@ func TestSysInfoDatabaseErrorsAndCancellationFailClosed(t *testing.T) {
 			callback := func(tx *gorm.DB) { tx.AddError(errors.New("private sysinfo failure")) }
 			var err error
 			switch fault {
-			case "peer-read", "login-read":
+			case "peer-read":
 				table := "peers"
-				if fault == "login-read" {
-					table = "login_logs"
-				}
 				err = global.DB.Callback().Query().Before("gorm:query").Register("sysinfo-failure", func(tx *gorm.DB) {
 					if tx.Statement.Table == table {
 						callback(tx)
@@ -162,7 +160,7 @@ func TestSysInfoDatabaseErrorsAndCancellationFailClosed(t *testing.T) {
 	}
 }
 
-func TestSysInfoNewPeerKeepsExistingLoginLogOwnerAssociation(t *testing.T) {
+func TestSysInfoNewPeerIgnoresLoginLogOwnerAndPreservesExplicitAssignments(t *testing.T) {
 	f := newSysInfoFixture(t)
 	compatCreate(t, &[]model.LoginLog{{UserId: f.actor.Id, DeviceId: "device", Uuid: "uuid"}, {UserId: f.owner.Id, DeviceId: "device", Uuid: "uuid"}, {UserId: f.hidden.Id, DeviceId: "other", Uuid: "uuid"}})
 	result := sysInfoCall(f, `{"id":"device","uuid":"uuid","hostname":"host","username":"user","user_id":3}`, nil)
@@ -173,10 +171,14 @@ func TestSysInfoNewPeerKeepsExistingLoginLogOwnerAssociation(t *testing.T) {
 	if err := global.DB.Where("id = ?", "device").First(&got).Error; err != nil {
 		t.Fatal(err)
 	}
-	if got.UserId != f.owner.Id || got.Hostname != "host" || got.Username != "user" {
-		t.Fatalf("create ownership mapping changed: %+v", got)
+	if got.UserId != 0 || got.Hostname != "host" || got.Username != "user" {
+		t.Fatalf("anonymous create inherited login-log ownership: %+v", got)
 	}
-	// Later reports do not reassign an already registered peer to a new login.
+	// A fixture-owned explicit assignment stands for a separate authenticated
+	// operation. Subsequent anonymous reports must preserve it.
+	if err := global.DB.Model(&got).Update("user_id", f.actor.Id).Error; err != nil {
+		t.Fatal(err)
+	}
 	compatCreate(t, &model.LoginLog{UserId: f.hidden.Id, DeviceId: "device", Uuid: "uuid"})
 	result = sysInfoCall(f, `{"id":"device","uuid":"uuid"}`, nil)
 	if result.Code != 200 {
@@ -185,217 +187,48 @@ func TestSysInfoNewPeerKeepsExistingLoginLogOwnerAssociation(t *testing.T) {
 	if err := global.DB.First(&got, got.RowId).Error; err != nil {
 		t.Fatal(err)
 	}
-	if got.UserId != f.owner.Id || got.Username != "" || got.Hostname != "host" {
+	if got.UserId != f.actor.Id || got.Username != "" || got.Hostname != "host" {
 		t.Fatalf("repeated report reassigned owner or lost snapshot semantics: %+v", got)
 	}
 }
 
-func TestSysInfoLegacyPresetBehaviorIsIsolatedFromBasicFields(t *testing.T) {
-	for _, scenario := range []string{"alias-only", "missing-book", "new-entry", "existing-entry"} {
-		t.Run(scenario, func(t *testing.T) {
+func TestSysInfoBasicCreateAndUpdateCommitFailuresRemainRetryable(t *testing.T) {
+	for _, existing := range []bool{false, true} {
+		t.Run(fmt.Sprintf("existing=%t", existing), func(t *testing.T) {
 			f := newSysInfoFixture(t)
-			peer := model.Peer{Id: "device", UserId: f.owner.Id, GroupId: 5, Alias: "admin", Username: "old-user", Hostname: "old-host", PresetAbId: 99}
-			compatCreate(t, &peer)
-			book := model.AddressBookCollection{UserId: 1, Name: "target"}
-			if scenario != "missing-book" {
-				compatCreate(t, &book)
+			peer := model.Peer{Id: "device", Username: "before", Alias: "managed"}
+			if existing {
+				compatCreate(t, &peer)
 			}
-			foreignBook := model.AddressBookCollection{UserId: f.owner.Id, Name: "target"}
-			compatCreate(t, &foreignBook)
-			old := compatRow("device", f.actor, 0)
-			foreign := compatRow("device", f.owner, foreignBook.Id)
-			compatCreate(t, &old)
-			compatCreate(t, &foreign)
-			var existing model.AddressBook
-			if scenario == "existing-entry" {
-				existing = compatRow("device", f.actor, book.Id)
-				existing.Alias, existing.Username, existing.Hostname = "ab-alias", "ab-user", "ab-host"
-				compatCreate(t, &existing)
-			}
-			body := `{"id":"device","hostname":"new-host","username":"new-user","os":"Linux","preset-address-book-alias":"new-alias"`
-			if scenario != "alias-only" {
-				body += `,"preset-address-book-name":"target"`
-			}
-			if scenario == "existing-entry" {
-				body = `{"id":"device","hostname":"","preset-address-book-name":"target"`
-			}
-			result := sysInfoCall(f, body+`}`, nil)
-			if result.Code != 200 || result.Body.String() != "SYSINFO_UPDATED" {
-				t.Fatalf("legacy ACK: %d %s", result.Code, result.Body.String())
-			}
-			var got model.Peer
-			if err := global.DB.First(&got, peer.RowId).Error; err != nil {
-				t.Fatal(err)
-			}
-			if got.UserId != peer.UserId || got.GroupId != peer.GroupId || got.PresetAbId != peer.PresetAbId {
-				t.Fatalf("preset changed unrelated management fields: %+v", got)
-			}
-			if scenario == "alias-only" || scenario == "missing-book" {
-				if got.Alias != "new-alias" || got.AbId != 0 {
-					t.Fatalf("legacy alias/no-target behavior changed: %+v", got)
-				}
-			} else {
-				if got.AbId != book.Id {
-					t.Fatal("legacy target was not linked")
-				}
-				var ab model.AddressBook
-				if err := global.DB.Where("id = ? AND collection_id = ?", "device", book.Id).First(&ab).Error; err != nil {
-					t.Fatal(err)
-				}
-				if scenario == "new-entry" {
-					if ab.UserId != 1 || ab.Alias != "new-alias" || ab.Username != "new-user" || ab.Hostname != "new-host" || ab.Platform != "Linux" || got.Alias != "new-alias" {
-						t.Fatalf("legacy create mapping: %+v peer %+v", ab, got)
-					}
-					var count int64
-					if err := global.DB.Model(&model.AddressBook{}).Where("row_id = ?", old.RowId).Count(&count).Error; err != nil {
-						t.Fatal(err)
-					}
-					if count != 0 {
-						t.Fatal("legacy owner1 cleanup no longer ran")
-					}
-				} else {
-					// Existing AB fields retain nonempty values; the legacy peer link
-					// intentionally receives the empty report values, as before.
-					if ab.Alias != "ab-alias" || ab.Username != "ab-user" || ab.Hostname != "ab-host" || got.Alias != "" || got.Username != "" || got.Hostname != "" {
-						t.Fatalf("existing legacy empty-value behavior changed: %+v peer %+v", ab, got)
-					}
-				}
-			}
-			var protected model.AddressBook
-			if err := global.DB.First(&protected, foreign.RowId).Error; err != nil || protected.UserId != foreign.UserId {
-				t.Fatal("legacy cleanup escaped original owner1 range", err)
-			}
-		})
-	}
-}
-
-func TestSysInfoEveryExecutedLegacyPresetFailureRollsBack(t *testing.T) {
-	for _, stage := range []string{"collection-read", "ab-read", "ab-create", "ab-update", "cleanup", "alias", "link"} {
-		t.Run(stage, func(t *testing.T) {
-			f := newSysInfoFixture(t)
-			peer := model.Peer{Id: "device", UserId: f.owner.Id, Alias: "before-alias", Username: "before-user", Hostname: "before-host"}
-			compatCreate(t, &peer)
-			book := model.AddressBookCollection{UserId: 1, Name: "target"}
-			compatCreate(t, &book)
-			old := compatRow("device", f.actor, 0)
-			compatCreate(t, &old)
-			if stage == "ab-update" {
-				existing := compatRow("device", f.actor, book.Id)
-				existing.Alias = "before-ab-alias"
-				compatCreate(t, &existing)
-			}
-			reached := false
-			fault := func(tx *gorm.DB) { reached = true; tx.AddError(errors.New("private preset failure")) }
-			var err error
-			switch stage {
-			case "collection-read", "ab-read":
-				table := "address_book_collections"
-				if stage == "ab-read" {
-					table = "address_books"
-				}
-				err = global.DB.Callback().Query().Before("gorm:query").Register("preset-failure", func(tx *gorm.DB) {
-					if tx.Statement.Table == table {
-						fault(tx)
-					}
-				})
-			case "ab-create":
-				err = global.DB.Callback().Create().Before("gorm:create").Register("preset-failure", func(tx *gorm.DB) {
-					if tx.Statement.Table == "address_books" {
-						fault(tx)
-					}
-				})
-			case "ab-update", "alias", "link":
-				peerUpdates := 0
-				err = global.DB.Callback().Update().Before("gorm:update").Register("preset-failure", func(tx *gorm.DB) {
-					if tx.Statement.Table == "peers" {
-						peerUpdates++
-					}
-					if stage == "ab-update" && tx.Statement.Table == "address_books" || stage == "alias" && peerUpdates == 2 || stage == "link" && peerUpdates == 3 {
-						fault(tx)
-					}
-				})
-			case "cleanup":
-				err = global.DB.Callback().Delete().Before("gorm:delete").Register("preset-failure", func(tx *gorm.DB) {
-					if tx.Statement.Table == "address_books" {
-						fault(tx)
-					}
-				})
-			}
+			pool, err := global.DB.DB()
 			if err != nil {
 				t.Fatal(err)
 			}
-			result := sysInfoCall(f, `{"id":"device","username":"after-user","hostname":"after-host","preset-address-book-name":"target","preset-address-book-alias":"after-alias"}`, nil)
-			if !reached {
-				t.Fatal("test did not reach intended failure stage")
-			}
-			if result.Code != 503 || strings.Contains(result.Body.String(), "private preset") || strings.Contains(result.Body.String(), "SYSINFO_UPDATED") {
-				t.Fatalf("preset failure acknowledged or leaked: %d %s", result.Code, result.Body.String())
-			}
-			if stage == "collection-read" || stage == "ab-read" {
-				if err := global.DB.Callback().Query().Remove("preset-failure"); err != nil {
-					t.Fatal(err)
-				}
-			}
-			var got model.Peer
-			if err := global.DB.First(&got, peer.RowId).Error; err != nil {
+			reachedCommit := false
+			faultDB, err := gorm.Open(sqlite.Dialector{Conn: sciterFailCommitPool{ConnPool: pool, db: pool, reached: &reachedCommit}}, &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)})
+			if err != nil {
 				t.Fatal(err)
 			}
-			if got.Username != peer.Username || got.Hostname != peer.Hostname || got.Alias != peer.Alias || got.AbId != 0 {
-				t.Fatalf("failed preset retained partial peer changes: %+v", got)
+			service.DB = faultDB
+			result := sysInfoCall(f, `{"id":"device","username":"after"}`, nil)
+			if !reachedCommit {
+				t.Fatal("test did not reach failing commit")
 			}
-			var entries []model.AddressBook
-			if err := global.DB.Where("id = ?", "device").Order("row_id ASC").Find(&entries).Error; err != nil {
+			if result.Code != 503 || strings.Contains(result.Body.String(), "SYSINFO_UPDATED") || strings.Contains(result.Body.String(), "private") {
+				t.Fatalf("commit failure falsely acknowledged or leaked: %d %s", result.Code, result.Body.String())
+			}
+			var rows []model.Peer
+			if err := global.DB.Find(&rows).Error; err != nil {
 				t.Fatal(err)
 			}
-			want := 1
-			if stage == "ab-update" {
-				want = 2
+			if !existing && len(rows) != 0 || existing && (len(rows) != 1 || rows[0].Username != "before" || rows[0].Alias != "managed") {
+				t.Fatalf("basic write escaped failed commit: %+v", rows)
 			}
-			if len(entries) != want || entries[0].RowId != old.RowId || stage == "ab-update" && entries[1].Alias != "before-ab-alias" {
-				t.Fatalf("preset failure retained AB creation/update/cleanup: %+v", entries)
+			service.DB = global.DB
+			if result := sysInfoCall(f, `{"id":"device","username":"after"}`, nil); result.Code != 200 || result.Body.String() != "SYSINFO_UPDATED" {
+				t.Fatalf("retry failed: %d %s", result.Code, result.Body.String())
 			}
 		})
-	}
-}
-
-func TestSysInfoCommitFailureDoesNotAcknowledgeOrKeepAnyWrites(t *testing.T) {
-	f := newSysInfoFixture(t)
-	peer := model.Peer{Id: "device", Username: "before"}
-	compatCreate(t, &peer)
-	book := model.AddressBookCollection{UserId: 1, Name: "target"}
-	compatCreate(t, &book)
-	old := compatRow("device", f.actor, 0)
-	compatCreate(t, &old)
-	pool, err := global.DB.DB()
-	if err != nil {
-		t.Fatal(err)
-	}
-	reachedCommit := false
-	faultDB, err := gorm.Open(sqlite.Dialector{Conn: sciterFailCommitPool{ConnPool: pool, db: pool, reached: &reachedCommit}}, &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)})
-	if err != nil {
-		t.Fatal(err)
-	}
-	service.DB = faultDB
-	result := sysInfoCall(f, `{"id":"device","username":"after","preset-address-book-name":"target","preset-address-book-alias":"after"}`, nil)
-	if !reachedCommit {
-		t.Fatal("test did not reach failing commit")
-	}
-	if result.Code != 503 || strings.Contains(result.Body.String(), "SYSINFO_UPDATED") || strings.Contains(result.Body.String(), "private") {
-		t.Fatalf("commit failure falsely acknowledged or leaked: %d %s", result.Code, result.Body.String())
-	}
-	var got model.Peer
-	if err := global.DB.First(&got, peer.RowId).Error; err != nil {
-		t.Fatal(err)
-	}
-	if got.Username != "before" || got.AbId != 0 || got.Alias != "" {
-		t.Fatalf("peer escaped failed commit: %+v", got)
-	}
-	var entries []model.AddressBook
-	if err := global.DB.Find(&entries).Error; err != nil {
-		t.Fatal(err)
-	}
-	if len(entries) != 1 || entries[0].RowId != old.RowId {
-		t.Fatalf("preset writes escaped failed commit: %+v", entries)
 	}
 }
 
