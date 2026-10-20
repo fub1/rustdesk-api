@@ -66,6 +66,15 @@ write COMMIT failure. A local LDAP wire fixture covers search and bounded
 cancellation; it does not establish acceptance against a business directory.
 
 No deployment or new real administration UI/official RustDesk1.5.0 acceptance
-occurred in this slice. Group/recipient deletion references and the anonymous
-shared-name listing policy remain separate pending work. Existing ordinary OIDC
-login and basic My address book manual evidence keep their original scope.
+occurred in this slice. The user's subsequent decisions keep existing group and
+sharing-recipient deletion behavior for this batch; reference policy moves to
+separate design work. The proposed new reject-while-referenced protocol was not
+adopted or implemented. Existing collection/primary-book and named-strategy
+reference protections already delivered remain in effect.
+
+The legacy pre-login shared-name list keeps its current public behavior: it
+returns owner1 collections and their existing metadata/response structure. The
+proposal to require login and filter by grants was not adopted for this batch.
+Neither proposal remains an unanswered confirmation request. No new model or
+runtime behavior is introduced by these decisions. Existing ordinary OIDC login
+and basic My address book manual evidence keep their original scope.
