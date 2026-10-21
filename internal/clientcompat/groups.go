@@ -13,6 +13,9 @@ func visibleGroup(tx *gorm.DB, u model.User) (bool, error) {
 	if u.IsAdmin != nil && *u.IsAdmin {
 		return true, nil
 	}
+	if u.GroupId == 0 {
+		return false, nil
+	}
 	var group model.Group
 	if err := tx.First(&group, u.GroupId).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
@@ -21,6 +24,24 @@ func visibleGroup(tx *gorm.DB, u model.User) (bool, error) {
 		return false, err
 	}
 	return group.Type == model.GroupTypeShare, nil
+}
+
+// directoryUsers applies the same owner scope before counting and paging all
+// three directory lists. The alias is a fixed internal SQL identifier.
+func directoryUsers(query *gorm.DB, u model.User, shared, enabledOnly bool, alias string) *gorm.DB {
+	query = query.Where(alias + ".id > 0")
+	if u.IsAdmin == nil || !*u.IsAdmin {
+		if shared {
+			query = query.Where(alias+".group_id = ?", u.GroupId)
+		} else {
+			query = query.Where(alias+".id = ?", u.Id)
+		}
+		enabledOnly = true
+	}
+	if enabledOnly {
+		query = query.Where(alias+".status = ?", model.COMMON_STATUS_ENABLE)
+	}
+	return query
 }
 func (s *Store) Users(ctx context.Context, actor Actor, page Page, enabledOnly bool) (int64, []User, error) {
 	rows := []User{}
@@ -37,15 +58,7 @@ func (s *Store) Users(ctx context.Context, actor Actor, page Page, enabledOnly b
 		if err != nil {
 			return err
 		}
-		query := tx.Model(&model.User{})
-		if shared {
-			query = query.Where("group_id = ?", u.GroupId)
-		} else {
-			query = query.Where("id = ?", u.Id)
-		}
-		if enabledOnly {
-			query = query.Where("status = ?", model.COMMON_STATUS_ENABLE)
-		}
+		query := directoryUsers(tx.Model(&model.User{}), u, shared, enabledOnly, "users")
 		if err := query.Count(&total).Error; err != nil {
 			return err
 		}
@@ -79,15 +92,8 @@ func (s *Store) GroupPeers(ctx context.Context, actor Actor, page Page, enabledO
 		if err != nil {
 			return err
 		}
-		query := tx.Table("peers AS p").Joins("JOIN users AS owner ON owner.id = p.user_id").Joins("LEFT JOIN device_groups AS dg ON dg.id = p.group_id")
-		if shared {
-			query = query.Where("owner.group_id = ?", u.GroupId)
-		} else {
-			query = query.Where("owner.id = ?", u.Id)
-		}
-		if enabledOnly {
-			query = query.Where("owner.status = ?", model.COMMON_STATUS_ENABLE)
-		}
+		query := tx.Table("peers AS p").Joins("JOIN users AS owner ON owner.id = p.user_id").Joins("LEFT JOIN device_groups AS dg ON dg.id = p.group_id AND dg.id > 0")
+		query = directoryUsers(query, u, shared, enabledOnly, "owner")
 		if err := query.Count(&total).Error; err != nil {
 			return err
 		}
@@ -113,10 +119,16 @@ func (s *Store) DeviceGroups(ctx context.Context, actor Actor, page Page) (int64
 		if err != nil {
 			return err
 		}
-		if u.IsAdmin == nil || !*u.IsAdmin {
-			return ErrForbidden
-		}
 		query := tx.Model(&model.DeviceGroup{})
+		if u.IsAdmin == nil || !*u.IsAdmin {
+			shared, err := visibleGroup(tx, u)
+			if err != nil {
+				return err
+			}
+			peers := tx.Table("peers AS p").Select("1").Joins("JOIN users AS owner ON owner.id = p.user_id").Where("p.group_id = device_groups.id")
+			peers = directoryUsers(peers, u, shared, true, "owner")
+			query = query.Where("device_groups.id > 0").Where("EXISTS (?)", peers)
+		}
 		if err := query.Count(&total).Error; err != nil {
 			return err
 		}

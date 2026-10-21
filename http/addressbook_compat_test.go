@@ -310,8 +310,9 @@ func TestClientCompatGroupListsPaginateAfterAuthorization(t *testing.T) {
 	compatReadPages(t, f, "GET", "/api/users?accessible=&status=1", "name", f.actor, 1008)
 	compatReadPages(t, f, "GET", "/api/peers?accessible=&status=1", "id", f.actor, 1041)
 	compatReadPages(t, f, "GET", "/api/device-group/accessible", "name", f.admin, 1003)
-	if w := f.call("GET", "/api/device-group/accessible?current=1&pageSize=100", "", f.actor); w.Code == 200 {
-		t.Fatal("ordinary actor gained device-group administration")
+	visibleGroups := compatReadPages(t, f, "GET", "/api/device-group/accessible", "name", f.actor, 1)
+	if visibleGroups[0] != groups[1002].Name {
+		t.Fatal("ordinary device-group directory escaped its visible peers")
 	}
 	first := f.call("GET", "/api/peers?current=1&pageSize=1&status=1", "", f.actor)
 	var page struct {

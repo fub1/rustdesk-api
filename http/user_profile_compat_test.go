@@ -142,10 +142,15 @@ func TestClientProfileUsersPreservesVisibilityAndPagination(t *testing.T) {
 	w := f.call("GET", "/api/users?current=1&pageSize=100", "", f.actor)
 	envelope := profileObject(t, profileResponse(t, w), "total", "data")
 	var rows []json.RawMessage
-	if string(envelope["total"]) != "4" || json.Unmarshal(envelope["data"], &rows) != nil || len(rows) != 4 {
-		t.Fatalf("unfiltered profile list: %s", w.Body.String())
+	if string(envelope["total"]) != "3" || json.Unmarshal(envelope["data"], &rows) != nil || len(rows) != 3 {
+		t.Fatalf("ordinary profile list exposed a disabled member: %s", w.Body.String())
 	}
-	assertNativeProfile(t, rows[3], disabled)
+	w = f.call("GET", "/api/users?current=1&pageSize=100", "", f.admin)
+	envelope = profileObject(t, profileResponse(t, w), "total", "data")
+	if string(envelope["total"]) != "5" || json.Unmarshal(envelope["data"], &rows) != nil || len(rows) != 5 {
+		t.Fatalf("administrator full-site profile list: %s", w.Body.String())
+	}
+	assertNativeProfile(t, rows[4], disabled)
 	if err := global.DB.Model(&model.User{}).Where("id = ?", f.actor.Id).Update("group_id", 2).Error; err != nil {
 		t.Fatal(err)
 	}

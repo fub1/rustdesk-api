@@ -1,5 +1,7 @@
 # 当前客户端 HTTP 契约与回归矩阵
 
+DEV04本批按已确认规则统一三目录：普通用户仅本人/真实共享用户组的启用成员及其设备，设备组由同一可见设备集合派生；管理员目录全站，保留status缺失/0不筛启用、1仅启用。地址簿共享不扩大MyGroup，不新增模型。当前范围、DEV01/03仅设计边界与真实客户端未验收说明见[设备API范围](device-capabilities.md)。
+
 PRE01-B 新增管理员 CLI 首批五字段和已批准设备备注迁移279，组设备列表 GET /api/peers 沿既有权限投影note；缺失/空值、严格拒绝、事务与真实验收范围见[CLI契约](device-cli.md)。本批未部署，未运行真实--assign。
 
 COMP12-B 用生产路由补齐地址簿会话边界：settings、personal、tag add/rename/color/delete、peer delete 七个端点，分别验证匿名、坏token、实际本地logout后的旧token、禁用用户、数据库撤销和数据库过期会话，共42个命名子测试。全部期望401及固定客户端错误对象；准备失效状态后读取users/user_tokens/tags/collections/rules/peers/address_books七张表的原始列值、时间和行ID，请求后精确比较不变。
