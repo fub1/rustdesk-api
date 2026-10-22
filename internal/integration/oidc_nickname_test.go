@@ -62,8 +62,8 @@ func oidcNicknameStore(t *testing.T, db *gorm.DB) *identitystore.Store {
 }
 
 func oidcNicknameIdentity(config auth.ProviderConfig, subject, name string) auth.ExternalIdentity {
-	return auth.ExternalIdentity{Issuer: config.Issuer, Subject: subject, Name: name,
-		Username: "external-renamed", Email: "external@example.test", Picture: "external-avatar"}
+	return auth.ExternalIdentity{Issuer: config.Issuer, Subject: subject, Name: "Ignored OIDC name",
+		Username: name, Email: "external@example.test", Picture: "external-avatar"}
 }
 
 func TestOIDCNicknameRealFailuresRollbackAndRetry(t *testing.T) {

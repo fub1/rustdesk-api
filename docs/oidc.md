@@ -96,14 +96,16 @@ logins use issuer/sub regardless of profile changes. Admission, identity link,
 local session, login log and existing device link commit together. The next
 request uses the current local user status and role.
 
-The verified UserInfo `name` supplies the display nickname, with surrounding
+The verified UserInfo `preferred_username` supplies the display nickname, with surrounding
 whitespace removed. On a later successful OIDC login, an empty local nickname
-is filled only when that verified name is nonempty. Any existing nonempty
+is filled only when that verified preferred username is nonempty. Any existing nonempty
 nickname, including a locally maintained value, is preserved. The update shares
 the issuance transaction and user lock: failed login/session/log/nickname writes
 roll back together. This never changes the internal username, issuer/sub link,
-role, email or avatar of an existing account. A provider that does not return
-`name` cannot supply a real display name through `preferred_username` alone.
+role, email or avatar of an existing account. This is RustDesk API display mapping;
+it requires no public IdP or client change. Missing/blank `preferred_username`
+does not fill the nickname, even when `name` is present. No `name` fallback or
+retroactive rewrite of existing nonempty nicknames is performed.
 
 The normal myOauth response now reads these explicit links. Unbinding requires
 the current authenticated session; an OIDC-only user cannot remove their final

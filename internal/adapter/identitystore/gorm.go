@@ -99,7 +99,9 @@ func (s *Store) Login(ctx context.Context, identity auth.ExternalIdentity, confi
 	if !valid(identity, config) {
 		return auth.Principal{}, auth.ErrInvalidInput
 	}
-	name := strings.TrimSpace(identity.Name)
+	// Username is the verified UserInfo preferred_username. Display mapping is
+	// local to this API; it does not require the provider to publish name.
+	nickname := strings.TrimSpace(identity.Username)
 	var result auth.Principal
 	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		current, err := checkProvider(tx, config)
@@ -127,7 +129,7 @@ func (s *Store) Login(ctx context.Context, identity auth.ExternalIdentity, confi
 			}
 			username += "_" + hex.EncodeToString(random[:])
 			admin := false
-			user := model.User{Username: username, Nickname: name, Email: identity.Email, Avatar: identity.Picture, GroupId: 1, IsAdmin: &admin, Status: model.COMMON_STATUS_ENABLE}
+			user := model.User{Username: username, Nickname: nickname, Email: identity.Email, Avatar: identity.Picture, GroupId: 1, IsAdmin: &admin, Status: model.COMMON_STATUS_ENABLE}
 			if err := tx.Create(&user).Error; err != nil {
 				return err
 			}
@@ -154,15 +156,15 @@ func (s *Store) Login(ctx context.Context, identity auth.ExternalIdentity, confi
 		// Backfill only an empty display name, preserving local edits and all
 		// identity/account fields. The session, login log and nickname commit
 		// together; a failed issuance or nickname write leaves none of them.
-		if result.User.Nickname == "" && name != "" {
-			update := tx.Model(&model.User{}).Where("id = ? AND nickname = ?", link.UserID, "").UpdateColumn("nickname", name)
+		if result.User.Nickname == "" && nickname != "" {
+			update := tx.Model(&model.User{}).Where("id = ? AND nickname = ?", link.UserID, "").UpdateColumn("nickname", nickname)
 			if update.Error != nil {
 				return update.Error
 			}
 			if update.RowsAffected != 1 {
 				return auth.ErrUnavailable
 			}
-			result.User.Nickname = name
+			result.User.Nickname = nickname
 		}
 		return nil
 	})

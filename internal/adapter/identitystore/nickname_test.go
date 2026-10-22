@@ -55,13 +55,14 @@ func nicknameOnlyChange(t *testing.T, before, after model.User, want string) {
 }
 
 func TestOIDCExistingNicknameFillOnlyAndPreserveLocalProfile(t *testing.T) {
-	for _, tc := range []struct{ label, before, name, want string }{
-		{"empty", "", "Trusted Name", "Trusted Name"},
-		{"trim-oidc-name", "", " \t可信 姓名\n", "可信 姓名"},
-		{"existing", "Personal nickname", "Changed OIDC Name", "Personal nickname"},
-		{"existing-whitespace-is-not-empty", " \t ", "Trusted Name", " \t "},
-		{"missing-name", "", "", ""},
-		{"blank-name", "", " \t\r\n\u3000", ""},
+	for _, tc := range []struct{ label, before, username, name, want string }{
+		{"preferred-without-name", "", "Preferred User", "", "Preferred User"},
+		{"preferred-wins-over-name", "", "Preferred User", "Different Name", "Preferred User"},
+		{"trim-preferred-username", "", " \t显示 用户\n", "Ignored Name", "显示 用户"},
+		{"existing", "Personal nickname", "Changed Preferred User", "Changed Name", "Personal nickname"},
+		{"existing-whitespace-is-not-empty", " \t ", "Preferred User", "", " \t "},
+		{"missing-preferred-no-name-fallback", "", "", "Must not fill", ""},
+		{"blank-preferred-no-name-fallback", "", " \t\r\n\u3000", "Must not fill", ""},
 	} {
 		t.Run(tc.label, func(t *testing.T) {
 			db, store, config := fixture(t, false)
@@ -75,7 +76,7 @@ func TestOIDCExistingNicknameFillOnlyAndPreserveLocalProfile(t *testing.T) {
 				t.Fatal(err)
 			}
 			claimed := identity(config)
-			claimed.Name, claimed.Username, claimed.Email, claimed.Picture = tc.name, "external-renamed", "external@example.test", "external-avatar"
+			claimed.Name, claimed.Username, claimed.Email, claimed.Picture = tc.name, tc.username, "external@example.test", "external-avatar"
 			principal, err := store.Login(context.Background(), claimed, config, auth.IssueRequest{Method: "oauth"})
 			if err != nil {
 				t.Fatal(err)
@@ -101,7 +102,7 @@ func TestOIDCExistingNicknameRepeatedLoginAndManualEdit(t *testing.T) {
 	before := nicknameExisting(t, db, config, "")
 	claimed := identity(config)
 	for _, name := range []string{"First trusted name", "Later OIDC name"} {
-		claimed.Name = name
+		claimed.Username, claimed.Name = name, "Ignored Name"
 		principal, err := store.Login(context.Background(), claimed, config, auth.IssueRequest{})
 		if err != nil || principal.User.Nickname != "First trusted name" {
 			t.Fatal("a repeated login overwrote the first committed nickname", err)
@@ -164,12 +165,17 @@ func TestOIDCExistingNicknameFailuresLeaveNoPartialLogin(t *testing.T) {
 	}
 }
 
-func TestOIDCNewAccountNicknameNormalizesTrustedName(t *testing.T) {
-	for _, tc := range []struct{ name, want string }{{" \t\n\u3000", ""}, {" \tTrusted Name\n", "Trusted Name"}} {
+func TestOIDCNewAccountNicknameNormalizesPreferredUsername(t *testing.T) {
+	for _, tc := range []struct{ username, name, want string }{
+		{" \t\n\u3000", "Must not fill", ""},
+		{"", "Must not fill", ""},
+		{" \tPreferred User\n", "Different Name", "Preferred User"},
+		{"Preferred User", "", "Preferred User"},
+	} {
 		t.Run(tc.want, func(t *testing.T) {
 			db, store, config := fixture(t, true)
 			claimed := identity(config)
-			claimed.Name = tc.name
+			claimed.Username, claimed.Name = tc.username, tc.name
 			principal, err := store.Login(context.Background(), claimed, config, auth.IssueRequest{})
 			if err != nil || principal.User.Nickname != tc.want || principal.User.IsAdmin {
 				t.Fatal("new OIDC nickname normalization or ordinary-user admission failed", err)
